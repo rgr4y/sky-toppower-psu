@@ -1,6 +1,6 @@
 <h1 align="center">SKY TOPPOWER PSU</h1>
 <p align="center">
-  <img src="assets/psu.jpg" width="320" alt="SKY TOPPOWER STP2S bench power supply">
+  <img src="assets/psu.png" width="320" alt="SKY TOPPOWER STP2S bench power supply">
   <br>
   <b>PC control panel for the SKY TOPPOWER STP2S bench power supply.</b>
   <br>
