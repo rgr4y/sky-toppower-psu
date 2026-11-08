@@ -16,8 +16,9 @@ permissions:
 
 jobs:
   build:
-    # One native runner per OS/arch: maker-dmg and notarization need macOS, and the Windows exe's
-    # icon/version info (rcedit) needs Windows. Standard runners are free on public repos.
+    # One native runner per OS/arch: maker-dmg and notarization need macOS; Linux/Windows build on
+    # their own OS so npm test runs there too (packager writes the exe resources with pure-JS
+    # resedit, so Windows could cross-build). Standard runners are free on public repos.
     strategy:
       fail-fast: false # one platform failing shouldn't cancel the others
       matrix:
