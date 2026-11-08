@@ -1,4 +1,4 @@
-.PHONY: app package dist serve dev css test
+.PHONY: app app-dev dev-name package dist serve dev css test
 .DEFAULT_GOAL := app
 
 node_modules: package.json
@@ -8,6 +8,19 @@ node_modules: package.json
 # Desktop app (Electron Forge). The npm scripts build the CSS first.
 app: node_modules
 	npm start
+
+# Desktop app with live reload: styles.scss recompiles on save, and main.js reloads the window on any src/ change.
+# The stock dev Electron.app names the macOS menu bar "Electron" (its own Info.plist), so rename it
+# to productName. Lives in node_modules: a reinstall resets it and the next app-dev re-applies it.
+DEV_PLIST := node_modules/electron/dist/Electron.app/Contents/Info.plist
+dev-name: node_modules
+	@name=$$(node -p "require('./package.json').productName"); \
+	for k in CFBundleName CFBundleDisplayName; do plutil -replace $$k -string "$$name" $(DEV_PLIST); done
+
+app-dev: css dev-name
+	@trap 'kill 0' INT TERM EXIT; \
+	npm run watch:css & \
+	npx electron-forge start
 
 package: node_modules
 	npm run package

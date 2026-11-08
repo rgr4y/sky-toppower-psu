@@ -7,7 +7,8 @@ const ts = (ms) => { const d = new Date(ms); return d.toTimeString().slice(0, 8)
 // One line per chunk, hexdump style: "12:00:00.123 TX 01 03 00 05 00 01 94 0b  |........|"
 // Optional label (e.g. register names) is appended after the byte count.
 export function formatTrace(dir, u8, at = Date.now(), label = '') {
-  return `${ts(at)} ${dir} ${hex(u8).padEnd(23 * 3 - 1)}  |${asc(u8)}|  ${u8.length}B${label ? '  ' + label : ''}`;
+  // Hex column fits 13 bytes: the panel's longest poll frame (4-register read reply). Longer frames just push the ascii over.
+  return `${ts(at)} ${dir} ${hex(u8).padEnd(13 * 3 - 1)}  |${asc(u8)}|  ${u8.length}B${label ? '  ' + label : ''}`;
 }
 
 // Wraps any Transport; when `enabled`, reports every byte in either direction.
