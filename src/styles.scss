@@ -785,6 +785,28 @@ button {
     0 6px 12px #0008;
   color: #c9d1d9;
 }
+/* Charger: why START is locked (pack mismatch / C-rate over max). */
+.start-block {
+  margin: 8px auto 0;
+  padding: 10px 16px;
+  max-width: 92%;
+  border-radius: 12px;
+  border: 1px solid #f8514966;
+  background: #f851491a;
+  color: #ff7b72;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+.start-block[hidden] {
+  display: none;
+}
+.onoff:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+  color: var(--muted);
+}
 .modebtn {
   flex: 1;
   background: linear-gradient(180deg, #30363d, #22262b);
