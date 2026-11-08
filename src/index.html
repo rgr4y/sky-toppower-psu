@@ -77,6 +77,7 @@
         <button class="gearbtn" id="connectBtn" title="Connect STP2S" aria-label="Connect STP2S">🔌</button>
         <span class="linkwrap"><span class="linkdot off" id="linkDot" title="Not connected" role="img" aria-label="Not connected"></span><span class="linktip" id="linkTip" role="status"></span></span>
         <button class="gearbtn charger-only" id="chargeBtn" title="Charge" aria-label="Charge">⚡</button>
+        <button class="gearbtn lockbtn" id="lockBtn" hidden aria-label="Lock volts and amps" aria-pressed="false">🔓</button>
         <button class="gearbtn" id="gearBtn" title="Settings" aria-label="Settings">⚙</button>
       </span>
     </div>
@@ -947,6 +948,48 @@ import { selectTransport } from '/transport/select.js';
   function outputEnable(on){
     outputOn = !!on;   // gates pushHist so the graphs freeze the moment output drops
     renderOutputBtn();
+    renderLock();
+  }
+
+  // ---- output lock ----
+  // While the output is on, the lock freezes the volt/amp setpoints, presets and OVP/OCP from the
+  // panel, against stray clicks. Lock = one click; unlock = hold LOCK_HOLD_MS. Output off clears it.
+  // The charge engine writes via post() directly, so it is never blocked.
+  var LOCK_HOLD_MS = 3000, LOCKED_OBJS = ['set_voltage', 'set_current', 'cfg_max_voltage', 'cfg_max_current'];
+  var uiLocked = false;
+  function renderLock(){
+    if(!outputOn) uiLocked = false;
+    var b = el('lockBtn');
+    b.hidden = !outputOn;
+    b.textContent = uiLocked ? '\ud83d\udd12' : '\ud83d\udd13';
+    b.classList.toggle('locked', uiLocked);
+    b.setAttribute('aria-pressed', uiLocked ? 'true' : 'false');
+    b.setAttribute('data-tip', uiLocked ? 'Hold to Unlock' : 'Lock volts/amps');   // CSS tip, as on the pills
+    document.body.classList.toggle('ui-locked', uiLocked);
+  }
+  // true (and a nudge) when obj is locked: callers return without writing.
+  function lockBlocks(obj){
+    if(!uiLocked || LOCKED_OBJS.indexOf(obj) < 0) return false;
+    var b = el('lockBtn');
+    b.classList.remove('nudge'); void b.offsetWidth; b.classList.add('nudge');
+    return true;
+  }
+  function wireLock(){
+    var b = el('lockBtn'), timer = null;
+    function cancel(){ clearTimeout(timer); timer = null; b.classList.remove('holding'); }
+    function press(e){
+      if(e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      if(e.type === 'keydown' && e.repeat) return;
+      e.preventDefault();
+      if(!uiLocked){ uiLocked = true; renderLock(); return; }
+      b.style.setProperty('--hold', LOCK_HOLD_MS + 'ms');
+      b.classList.add('holding');
+      timer = setTimeout(function(){ cancel(); uiLocked = false; renderLock(); }, LOCK_HOLD_MS);
+    }
+    b.addEventListener('mousedown', press);
+    b.addEventListener('touchstart', press, {passive:false});
+    b.addEventListener('keydown', press);
+    ['mouseup','mouseleave','touchend','touchcancel','keyup','blur'].forEach(function(ev){ b.addEventListener(ev, cancel); });
   }
   // PSU mode: raw output toggle. Charger mode: starts/aborts the charge engine instead, so the
   // output is never flipped behind the engine's back.
@@ -1158,6 +1201,7 @@ import { selectTransport } from '/transport/select.js';
       stepper.querySelectorAll('button[data-step]').forEach(function(btn){
         var step = parseFloat(btn.getAttribute('data-step'));
         wireHold(btn, function(){
+          if(lockBlocks(obj)) return;
           var cur = parseFloat(stepper.getAttribute('data-current') || '0');
           var next = clamp(round(cur + step, dec), min, max);
           stepper.setAttribute('data-current', next);
@@ -1173,6 +1217,7 @@ import { selectTransport } from '/transport/select.js';
       var startEdit = function(e){
         if(e.target.tagName === 'INPUT') return;   // already editing
         e.preventDefault();                         // suppress text-caret drag
+        if(lockBlocks(obj)) return;
         beginEdit(valEl, obj, dec, min, max, function(next){
           stepper.setAttribute('data-current', next);
         });
@@ -1187,6 +1232,7 @@ import { selectTransport } from '/transport/select.js';
   function wirePresets(){
     document.querySelectorAll('#presetRow button[data-preset]').forEach(function(btn){
       btn.addEventListener('click', function(){
+        if(lockBlocks('set_voltage')) return;
         var v = parseFloat(btn.getAttribute('data-preset'));
         var stepper = document.querySelector('.stepper[data-obj="set_voltage"]');
         var dec = parseInt(stepper.getAttribute('data-dec'),10);
@@ -1674,6 +1720,7 @@ import { selectTransport } from '/transport/select.js';
       field.querySelectorAll('button[data-dir]').forEach(function(btn){
         var dir = parseFloat(btn.getAttribute('data-dir'));
         wireHold(btn, function(){
+          if(lockBlocks(obj)) return;
           var cur = parseFloat(field.getAttribute('data-current') || '0');
           var displayStep = step;
           var rawStep = (conv === 'sec2min') ? displayStep * 60 : displayStep;
@@ -1689,6 +1736,7 @@ import { selectTransport } from '/transport/select.js';
       var startEditCfg = function(e){
         if(e.target.tagName === 'INPUT') return;
         e.preventDefault();
+        if(lockBlocks(obj)) return;
         var cur = parseFloat(field.getAttribute('data-current') || '0');
         var dispCur = (conv === 'sec2min') ? cur/60 : cur;
         beginEditRaw(vEl, dispCur, dec, function(dispNext){
@@ -1893,6 +1941,7 @@ import { selectTransport } from '/transport/select.js';
   wirePresets();
   wireCharge();
   wireButtons();
+  wireLock(); renderLock();
   initSpark('v'); initSpark('a'); initSpark('w');
   initRoute();
 

@@ -232,6 +232,61 @@ button {
   cursor: pointer;
 }
 
+/* Output lock: one click locks, hold to unlock (fill shows the hold progress). */
+.lockbtn[hidden] {
+  display: none;
+}
+
+.lockbtn.locked {
+  border-color: var(--a);
+  box-shadow: 0 0 8px rgba(255, 176, 0, 0.3333333333);
+}
+
+/* Hold-to-unlock pie over the icon: starts full and drains clockwise to 0 = unlocked. */
+@property --pie {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 360deg;
+}
+.lockbtn {
+  position: relative;
+}
+
+.lockbtn.holding::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: conic-gradient(rgba(255, 176, 0, 0.8) var(--pie), transparent 0);
+  pointer-events: none;
+  animation: lock-pie var(--hold, 3s) linear forwards;
+}
+
+@keyframes lock-pie {
+  to {
+    --pie: 0deg;
+  }
+}
+.lockbtn.nudge {
+  animation: lock-nudge 0.4s;
+}
+
+@keyframes lock-nudge {
+  20%, 60% {
+    transform: translateX(-3px);
+  }
+  40%, 80% {
+    transform: translateX(3px);
+  }
+}
+body.ui-locked #presetRow,
+body.ui-locked .stepper[data-obj],
+body.ui-locked .field[data-obj=cfg_max_voltage],
+body.ui-locked .field[data-obj=cfg_max_current] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ===== DIAGNOSTICS (dynamic, populated from the SSE stream) ===== */
 .diagval {
   margin-left: 12px;
@@ -622,7 +677,9 @@ button {
 }
 
 .pp[data-tip]:hover::after,
-.pp[data-tip]:focus-visible::after {
+.pp[data-tip]:focus-visible::after,
+.lockbtn[data-tip]:hover::before,
+.lockbtn[data-tip]:focus-visible::before {
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 6px);
@@ -640,6 +697,13 @@ button {
   z-index: 50;
   pointer-events: none;
   visibility: visible;
+}
+
+/* Lock tip opens below: the topbar sits at the window's top edge. ::after is the hold pie. */
+.lockbtn[data-tip]:hover::before,
+.lockbtn[data-tip]:focus-visible::before {
+  bottom: auto;
+  top: calc(100% + 6px);
 }
 
 @media (prefers-reduced-motion: reduce) {
