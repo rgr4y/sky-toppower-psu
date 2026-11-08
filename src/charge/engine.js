@@ -7,7 +7,7 @@ export const SETTLE_DWELL_S = 5;
 export const CV_EPS = 0.02;
 
 export function initState(job, env) {
-  return { stage: 'IDLE', started: false, job, env, derived: deriveJob(job, env), reason: null, taperSinceS: null };
+  return { stage: 'IDLE', started: false, job, env, derived: deriveJob(job, env), reason: null, taperSinceS: null, cvSinceS: null };
 }
 
 // Per-cell sane voltage bounds used to sanity-check an *initial* pack reading
@@ -95,7 +95,7 @@ export function tick(state, inputs) {
   // worse, keep a genuinely-cooled-off fault condition masked. When stale,
   // temp guards are disabled entirely (effTemp undefined) — charge proceeds.
   const effTemp = inputs.packTempStale ? undefined : inputs.packTemp;
-  const setStage = (stage) => { s.stage = stage; s.taperSinceS = null; };
+  const setStage = (stage) => { s.stage = stage; s.taperSinceS = null; s.cvSinceS = null; };
   const fail = (reason) => { s.stage = 'FAULT'; s.reason = reason; writes.push({ type: 'OUTPUT', value: false }); return { state: s, writes, events }; };
 
   if (s.stage === 'IDLE' && s.started) {
@@ -119,9 +119,20 @@ export function tick(state, inputs) {
         events.push({ kind: 'stage', msg: 'CC (bulk)' });
       }
       break;
-    case 'CC':
-      if (inputs.v >= d.absorbV - CV_EPS || inputs.cccv === 'CV') { setStage('CV'); events.push({ kind: 'stage', msg: 'CV (absorb)' }); }
+    case 'CC': {
+      // The unit's own CV flag must hold for SETTLE_DWELL_S: right after OUTPUT on, the latest poll
+      // still carries the output-off status (CC bit clear reads as 'CV'), which used to flip the
+      // engine to CV on the first tick while the unit was really in CC.
+      let toCV = inputs.v >= d.absorbV - CV_EPS;
+      if (!toCV && inputs.cccv === 'CV') {
+        if (s.cvSinceS == null) s.cvSinceS = inputs.stageElapsedS;
+        else toCV = inputs.stageElapsedS - s.cvSinceS >= SETTLE_DWELL_S;
+      } else if (!toCV) {
+        s.cvSinceS = null;
+      }
+      if (toCV) { setStage('CV'); events.push({ kind: 'stage', msg: 'CV (absorb)' }); }
       break;
+    }
     case 'CV': {
       if (inputs.i < d.taperA) {
         if (s.taperSinceS == null) s.taperSinceS = inputs.stageElapsedS;
