@@ -37,6 +37,17 @@ jobs:
 
       - run: npm test
 
+      # Electron's install script doesn't run under npm ci (allowScripts), so Forge would download
+      # the zip itself, and GitHub release downloads 504 at times. Prefetch it (GitHub, else a
+      # mirror; validated against electron/checksums.json either way) and cache it between runs.
+      - uses: actions/cache@v6
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Fetch Electron
+        run: node scripts/fetch-electron.mjs "$RUNNER_TEMP/electron-zips" arm64
+
       # Developer ID cert (MACOS_CERT_P12 = base64 .p12) into a throwaway keychain. Without it the
       # build is labelled UNSIGNED (artifact name + summary) rather than quietly shipping unsigned.
       - name: Import signing certificate
@@ -68,6 +79,7 @@ jobs:
       # forge.config.js signs when APP_IDENTITY is set and notarizes when the APPLE_* trio is too.
       - name: Build
         env:
+          ELECTRON_ZIP_DIR: ${{ runner.temp }}/electron-zips
           APP_IDENTITY: ${{ steps.sign.outputs.signed && secrets.APP_IDENTITY || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
