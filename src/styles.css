@@ -48,6 +48,26 @@ body {
   margin: 0 auto;
 }
 
+.soc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+.soc-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.soc-grid input {
+  width: 100%;
+}
+.soc-grid input.bad {
+  border-color: var(--hz);
+}
+
 #psu.is-charger .line .setpt {
   cursor: pointer;
 }

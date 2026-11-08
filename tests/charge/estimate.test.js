@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { socFromRestV, ChargeEstimate } from '../../src/charge/estimate.js';
+import { socFromRestV, ChargeEstimate, defaultSocPoints, socTableFromPoints } from '../../src/charge/estimate.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
 
@@ -44,4 +44,13 @@ test('ChargeEstimate: CV ETA from an exponential current decay', () => {
   const early = new ChargeEstimate({ capacityAh: 50, derived: { chargeA: 5, taperA } });
   for (let t = 0; t <= 60; t += 5) early.sample(t, i0 * Math.exp(-t / tau), 'CV');
   assert.equal(early.eta('CV'), null, 'under 2 min of CV');
+});
+
+test('11-point curve: LiFePO4 default is the BMS table; custom tables validate and drive socFromRestV', () => {
+  assert.deepEqual(defaultSocPoints('lifepo4'), [2.5, 3.1, 3.2, 3.25, 3.27, 3.29, 3.3, 3.31, 3.32, 3.34, 3.4]);
+  assert.equal(defaultSocPoints('leadacid').length, 11);
+  assert.equal(socTableFromPoints([1, 2, 3]), null, 'wrong length');
+  assert.equal(socTableFromPoints([2.5, 3.1, 3.2, 3.2, 3.27, 3.29, 3.3, 3.31, 3.32, 3.34, 3.4]), null, 'not ascending');
+  const custom = socTableFromPoints([2.5, 3.0, 3.1, 3.15, 3.2, 3.25, 3.28, 3.3, 3.32, 3.35, 3.45]);
+  near(socFromRestV('lifepo4', 4, 13.0, custom), 50, 0.01, '3.25 V/cell on the custom curve');
 });

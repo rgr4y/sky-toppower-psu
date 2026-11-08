@@ -89,15 +89,16 @@
         <div class="digits">
           <div class="line"><span class="meas"><span class="spark" id="sparkV"></span><span class="num v" id="digV">--.--</span></span><span class="u v">V</span><span class="setpt v"><span class="num" id="setrowV">--.--</span><small id="setrowVLbl">V-SET</small></span></div>
           <div class="line"><span class="meas"><span class="spark" id="sparkA"></span><span class="num a" id="digA">-.---</span></span><span class="u a">A</span><span class="setpt a"><span class="num" id="setrowA">-.---</span><small id="setrowALbl">A-SET</small></span></div>
-          <div class="line"><span class="meas"><span class="spark" id="sparkW"></span><span class="num w" id="digW">--.--</span></span><span class="u w">W</span><span></span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkW"></span><span class="num w" id="digW">--.--</span></span><span class="u w">W</span><span class="setpt charger-only"><span class="num w" id="socBig">--%</span><small>BATTERY</small></span></div>
         </div>
         <div class="statusbar">
           <span class="in psu-only" id="uinReadout">U-IN --.- V ·</span>
-          <span class="in" id="tempReadout">TEMP --°C</span>
+          <span class="in psu-only" id="tempReadout">TEMP --°C</span>
+          <!-- Charger mode: elapsed + ETA here; TEMP moves to the status line under the job (renderChgFace) -->
+          <span class="in charger-only" id="chgTimeReadout"></span>
           <!-- external temp probe: no way to hook one up on the STP2S -->
           <!-- <span class="in" id="buckReadout">· probe --°C</span> -->
           <span class="ntc-ov-badge" id="buckOvBadge" style="display:none;">⚠ NTC BYPASS</span>
-          <span class="in stage-badge" id="stageBadge" style="display:none;padding:3px 7px;border-radius:5px;">Idle</span>
           <span class="prot" id="protPills"><span class="pp" data-k="ovp" tabindex="0">OVP</span><span class="pp" data-k="ocp" tabindex="0">OCP</span><span class="pp" data-k="opp" tabindex="0">OPP</span><span class="pp on" data-k="otp" tabindex="0" data-tip="OTP armed · TEMP --°C">OTP</span></span>
           <span class="cv" id="cvcvBadge" style="display:none;">CV</span>
           <span class="cc cc-off" id="cccvBadge">CC</span>
@@ -265,7 +266,9 @@
       <div class="field"><div class="name">Chemistry</div><select id="chgChem" class="chg-select"></select></div>
       <div class="field"><div class="name">Cells</div><input type="number" id="chgCells" class="chg-input" min="1" max="24" step="1" value="4"></div>
       <div class="field"><div class="name">Capacity<small>Ah</small></div><input type="number" id="chgCapacity" class="chg-input" min="0.1" step="0.1" value="10"></div>
-      <div class="field"><div class="name">Charge current<small>A · dial down for a smaller supply</small></div><input type="number" id="chgChargeReq" class="chg-input" min="0.1" step="0.1" value="2"></div>
+      <div class="field"><div class="name">Charge current<small>A · dial down for a smaller supply</small></div><input type="number" id="chgChargeReq" class="chg-input" min="0.1" step="0.1" value="2">
+      <div class="field"><div class="name">Absorb voltage<small>V per cell · CV target · blank = chemistry default</small></div><input type="number" id="chgAbsorbCell" class="chg-input" min="1" step="0.01"></div>
+      <div class="field" id="chgFloatField"><div class="name">Float voltage<small>V per cell · blank = chemistry default</small></div><input type="number" id="chgFloatCell" class="chg-input" min="1" step="0.01"></div></div>
     </div>
 
     <div class="sec">
@@ -278,6 +281,12 @@
       <div class="field"><div class="name">Max watts<small>absorb V × charge A, end of CC</small></div><span class="diagval" id="chgMaxW">-.- W</span></div>
       <div class="field"><div class="name">Average watts<small>est. over CC, nominal → absorb</small></div><span class="diagval" id="chgAvgW">-.- W</span></div>
       <div class="charge-msg warn" id="chgClampWarn" style="display:none;margin-top:8px;">⚠ Charge current limited by device / safety-clamp max</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title charge">📈 Battery % curve<small style="text-transform:none;letter-spacing:0;color:#6e7681;"> · resting V per cell, per chemistry</small></div>
+      <div class="soc-grid" id="chgSocGrid"></div>
+      <div class="field"><div class="name">Chemistry default<small>e.g. copy your BMS's "Cell N% Cap. Voltage" table</small></div><button class="logsbtn" id="chgSocReset">Reset</button></div>
     </div>
 
     <div class="sec">
@@ -329,7 +338,7 @@
 <script type="module">
 import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob } from '/charge/profiles.js';
 import { ChargeRunner } from '/charge/runner.js';
-import { socFromRestV, ChargeEstimate } from '/charge/estimate.js';
+import { socFromRestV, ChargeEstimate, defaultSocPoints, socTableFromPoints, SOC_STEPS } from '/charge/estimate.js';
 import { TempReader } from '/charge/temp.js';
 import { selectTransport } from '/transport/select.js';
 
@@ -822,7 +831,6 @@ import { selectTransport } from '/transport/select.js';
       case 'sensor/effective_charge_cap': return; // reserved for future use
       case 'binary_sensor/cc_mode': chgLastCC = data.value ? 'CC' : 'CV'; ccMode(!!data.value); return;
       case 'binary_sensor/thermal_lockout': setThermalLockout(!!data.value); return;
-      case 'text_sensor/charge_stage': chargeStage(data.state); return;
       case 'text_sensor/charge_status': chargeMsg(data.state); return;
       case 'switch/output_enable': outputEnable(!!data.value); return;
       case 'switch/bench_psu_mode': setMode(!!data.value); return;
@@ -865,7 +873,9 @@ import { selectTransport } from '/transport/select.js';
   }
   function uinReadout(v){ el('uinReadout').textContent = 'U-IN ' + fmt(v,1) + ' V ·'; }
   // STP2S internal temp (reg 0x0003, °C); also feeds the OTP pill tooltip.
+  var lastTempC = null;   // also shown on the charger-mode status line (renderChgFace)
   function tempReadout(v){
+    lastTempC = v;
     el('tempReadout').textContent = 'TEMP ' + fmt(v,0) + '°C';
     protPill('otp', 'lim', fmt(v,0) + '°C');
   }
@@ -900,12 +910,6 @@ import { selectTransport } from '/transport/select.js';
       cv.style.display = '';
       cv.textContent = 'CV';
     }
-  }
-  function chargeStage(stateStr){
-    var badge = el('stageBadge');
-    if(psuMode){ badge.style.display = 'none'; return; }
-    badge.style.display = '';
-    badge.textContent = stateStr || 'Idle';
   }
 
   // Charger status. Complete -> green banner. Faults -> the shared red dismissible
@@ -958,7 +962,6 @@ import { selectTransport } from '/transport/select.js';
     el('modeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
     el('modeTag').textContent = '⚡ Charger'; el('modeTag').style.display = isPsu ? 'none' : '';   // PSU is the default; only flag charger mode
     el('titleMode').textContent = isPsu ? '' : '· CHARGER MODE';
-    el('stageBadge').style.display = isPsu ? 'none' : '';
     // Face control-swap: charger -> profile card, PSU -> voltage presets.
     if(isPsu) el('psu').classList.remove('is-charger'); else el('psu').classList.add('is-charger');
     var cfg = el('cfg');
@@ -1257,8 +1260,67 @@ import { selectTransport } from '/transport/select.js';
       cells: parseInt(el('chgCells').value, 10) || 1,
       capacityAh: parseFloat(el('chgCapacity').value) || 0,
       chargeA: parseFloat(el('chgChargeReq').value) || 0,   // user-set, primary
+      absorbCellV: chgCurve(el('chgChem').value).absorbCellV,   // per-chemistry overrides (Charge view)
+      floatCellV: chgCurve(el('chgChem').value).floatCellV,
     };
   }
+  // Per-chemistry charge curves, edited in the Charge view and kept across launches:
+  // { [chemistry]: { absorbCellV, floatCellV, soc: [11 per-cell volts, 0..100 %] } }. Per chemistry,
+  // so a LiFePO4 override never follows a switch to Li-ion.
+  var CHG_CURVES_KEY = 'stp2s.chargeCurves', chgCurves = {};
+  try { chgCurves = JSON.parse(localStorage.getItem(CHG_CURVES_KEY) || '{}') || {}; } catch(e){ console.warn('charge curves restore:', e); }
+  function chgCurve(chem){ return chgCurves[chem] || {}; }
+  function chgSaveCurve(chem, patch){
+    var c = Object.assign({}, chgCurve(chem), patch);
+    Object.keys(c).forEach(function(k){ if(c[k] == null) delete c[k]; });
+    chgCurves[chem] = c;
+    try { localStorage.setItem(CHG_CURVES_KEY, JSON.stringify(chgCurves)); } catch(e){ console.warn('charge curves save:', e); }
+  }
+  function chgSocTable(chem){ return socTableFromPoints(chgCurve(chem).soc) || undefined; }   // undefined = built-in table
+  function chgShowCurves(){
+    var chem = el('chgChem').value, c = chgCurve(chem), p = CHG_PROFILES[chem];
+    if(!p) return;
+    el('chgAbsorbCell').value = c.absorbCellV == null ? '' : c.absorbCellV;
+    el('chgAbsorbCell').placeholder = p.absorbV.toFixed(2);
+    el('chgAbsorbCell').max = p.maxCellV;
+    el('chgFloatField').style.display = p.floatV == null ? 'none' : '';   // Li-ion: no float stage
+    el('chgFloatCell').value = c.floatCellV == null ? '' : c.floatCellV;
+    el('chgFloatCell').placeholder = p.floatV == null ? '' : p.floatV.toFixed(2);
+    el('chgFloatCell').max = p.maxCellV;
+    var pts = c.soc || defaultSocPoints(chem);
+    SOC_STEPS.forEach(function(pct, k){ var inp = el('chgSoc' + pct); inp.value = pts[k].toFixed(3); inp.classList.remove('bad'); });
+  }
+  function chgWireCurves(){
+    var grid = el('chgSocGrid');
+    SOC_STEPS.forEach(function(pct){
+      var lab = document.createElement('label');
+      lab.innerHTML = '<span>' + pct + '%</span><input type="number" class="chg-input" step="0.001" min="1" id="chgSoc' + pct + '">';
+      grid.appendChild(lab);
+    });
+    var cellOverride = function(id, key){
+      el(id).addEventListener('input', function(){
+        var v = parseFloat(el(id).value), patch = {};
+        patch[key] = v > 0 ? v : null;
+        chgSaveCurve(el('chgChem').value, patch);
+        chgRenderPreview();
+      });
+    };
+    cellOverride('chgAbsorbCell', 'absorbCellV');
+    cellOverride('chgFloatCell', 'floatCellV');
+    grid.addEventListener('input', function(){
+      var pts = SOC_STEPS.map(function(pct){ return parseFloat(el('chgSoc' + pct).value); });
+      var ok = !!socTableFromPoints(pts);
+      SOC_STEPS.forEach(function(pct){ el('chgSoc' + pct).classList.toggle('bad', !ok); });   // must rise strictly 0 -> 100 %
+      if(ok){ chgSaveCurve(el('chgChem').value, { soc: pts }); renderChgFace(chargeRunner.state); }
+    });
+    el('chgSocReset').addEventListener('click', function(){
+      chgSaveCurve(el('chgChem').value, { soc: null });
+      chgShowCurves();
+      renderChgFace(chargeRunner.state);
+    });
+    el('chgChem').addEventListener('change', chgShowCurves);
+  }
+
   function chgEnv(){
     var clamps = getSafetyClamps();
     // Mirror the engine's staleness gating: a stale pack reading must not
@@ -1282,7 +1344,7 @@ import { selectTransport } from '/transport/select.js';
   function chgRenderPreview(){
     var job = readChgJob(), d;
     try { d = chgDeriveJob(job, chgEnv()); } catch(e){ console.warn('deriveJob:', e); return null; }
-    el('chgAbsorbV').textContent = d.absorbV.toFixed(2) + ' V';
+    el('chgAbsorbV').textContent = d.absorbV.toFixed(2) + ' V' + (d.cellCapped ? ' · capped at ' + CHG_PROFILES[job.chemistry].maxCellV.toFixed(2) + ' V/cell' : '');
     el('chgFloatV').textContent = (d.floatV == null ? '—' : d.floatV.toFixed(2) + ' V');
     el('chgChargeA').textContent = d.chargeA.toFixed(2) + ' A';
     el('chgCRateOut').textContent = (job.capacityAh > 0 ? (d.chargeA / job.capacityAh).toFixed(2) : '-.--') + ' C';
@@ -1339,7 +1401,7 @@ import { selectTransport } from '/transport/select.js';
       parts.push('+' + chgEst.ahIn.toFixed(2) + ' Ah');
       if(eta) parts.push('ETA ' + (eta.bound === 'max' ? '≤ ' : '~') + fmtDuration(Math.round(eta.seconds)));
     }
-    el('chgFaceStatus').innerHTML = parts.join(' · ');   // face: stage, reason, elapsed only
+    renderChgFace(state);
     var packT = tempReader.latest('pack');
     var packStale = tempReader.isStale('pack', performance.now());
     parts.push('pack ' + (typeof packT === 'number' ? packT.toFixed(1) + '°C' + (packStale ? ' (stale)' : '') : '—'));
@@ -1354,13 +1416,6 @@ import { selectTransport } from '/transport/select.js';
     el('chgLogCount').textContent = chgLog.length + ' samples';
   }
 
-  function chgUpdateFaceBadge(state){
-    var badge = el('stageBadge'); if(!badge) return;
-    if(!state.started && state.stage === 'IDLE'){ badge.style.display = 'none'; return; }
-    badge.style.display = '';
-    badge.textContent = state.stage;
-    badge.className = 'in stage-badge' + (state.stage === 'FAULT' ? ' hazard' : '');
-  }
 
   // feed() ticks the engine every CHG_FEED_MS forever unless we stop it.
   // IDLE is a stable no-op stage (fine to keep ticking, feed()/onChange both
@@ -1403,7 +1458,6 @@ import { selectTransport } from '/transport/select.js';
     var progressing = !idle && !terminal;   // PRECHARGE/CC/CV/FLOAT
     if(!idle || state.stage !== _chgLastRenderedStage){
       renderChgStatus(state);
-      chgUpdateFaceBadge(state);
     }
     _chgLastRenderedStage = state.stage;
     updateChgButtons();
@@ -1421,22 +1475,40 @@ import { selectTransport } from '/transport/select.js';
   // a no-op until start() has been called at least once (this.state is null).
   chgStartFeedLoop();
 
-  function chgOnTelemetry(){ renderOutputBtn(); chgRenderPreview(); renderChgRest(); }
+  function chgOnTelemetry(){
+    renderOutputBtn(); chgRenderPreview();
+    if(!(chargeRunner.state && chargeRunner.state.started)) renderChgFace(null);   // idle: resting %
+  }
 
   // Battery % from resting voltage: only with the output off and no current (charging current lifts
   // the terminal voltage), and only if the unit senses a voltage that fits the job's pack.
   function chgRestSoc(){
     if(outputOn || typeof chgLastV !== 'number' || typeof chgLastI !== 'number' || Math.abs(chgLastI) > 0.02) return null;
     var job = readChgJob();
-    return socFromRestV(job.chemistry, job.cells, chgLastV);
+    return socFromRestV(job.chemistry, job.cells, chgLastV, chgSocTable(job.chemistry));
   }
-  // Idle face status: the resting estimate, until a charge starts.
-  function renderChgRest(){
-    if(psuMode || (chargeRunner.state && chargeRunner.state.started)) return;
-    var soc = chgRestSoc();
-    el('chgFaceStatus').innerHTML = '<b>Idle</b>' + (soc == null
-      ? (typeof chgLastV === 'number' && chgLastV > 0.5 && !outputOn ? ' · ' + chgLastV.toFixed(2) + ' V doesn\u2019t match the job\u2019s pack' : '')
-      : ' · pack ' + chgLastV.toFixed(2) + ' V · ~' + Math.round(soc) + '% (resting)');
+  // Charger-mode face. Glass status bar: elapsed + ETA. Line under the job: TEMP, then the stage
+  // when it isn't CC/CV (the unit's CC/CV pills show that), fault reason, Ah in; idle: the resting
+  // pack reading. Big % in the W row. state null/unstarted = idle.
+  function renderChgFace(state){
+    if(psuMode) return;
+    var running = !!(state && state.started), soc = null, time = [], parts = [];
+    parts.push('TEMP ' + (lastTempC == null ? '--' : fmt(lastTempC, 0)) + '°C');
+    if(running){
+      time.push('elapsed ' + fmtDuration(Math.max(0, Math.round((performance.now() - chargeRunner.startMs) / 1000))));
+      var eta = chgEst && chgEst.eta(state.stage);
+      if(eta) time.push('ETA ' + (eta.bound === 'max' ? '≤ ' : '~') + fmtDuration(Math.round(eta.seconds)));
+      if(state.stage !== 'CC' && state.stage !== 'CV') parts.push('<b>' + escapeHtml(state.stage) + '</b>');
+      if(state.reason) parts.push('<span class="hazard">' + escapeHtml(state.reason) + '</span>');
+      if(chgEst){ soc = chgEst.soc(); parts.push('+' + chgEst.ahIn.toFixed(2) + ' Ah'); }
+    } else {
+      soc = chgRestSoc();
+      if(soc != null) parts.push('pack ' + chgLastV.toFixed(2) + ' V (resting)');
+      else if(typeof chgLastV === 'number' && chgLastV > 0.5 && !outputOn) parts.push(chgLastV.toFixed(2) + ' V doesn\u2019t match the job\u2019s pack');
+    }
+    el('chgTimeReadout').textContent = time.join(' · ');
+    el('chgFaceStatus').innerHTML = parts.join(' · ');
+    el('socBig').textContent = soc == null ? '--%' : Math.round(soc) + '%';
   }
 
   // Persistent, honest warning for the "link dropped mid-charge" case (see
@@ -1525,6 +1597,8 @@ import { selectTransport } from '/transport/select.js';
         el(id).value = saved[id];
       });
     } catch(e){ console.warn('charge job restore:', e); }
+    chgWireCurves();
+    chgShowCurves();   // after the saved chemistry is restored
     function saveChgJob(){
       var job = {}; CHG_JOB_IDS.forEach(function(id){ job[id] = el(id).value; });
       try { localStorage.setItem(CHG_JOB_KEY, JSON.stringify(job)); } catch(e){ console.warn('charge job save:', e); }

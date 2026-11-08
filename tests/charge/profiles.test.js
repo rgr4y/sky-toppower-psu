@@ -15,3 +15,13 @@ test('deriveJob: max watts at absorb, average over the nominal→absorb CC ramp'
   assert.equal(d.maxW.toFixed(1), '73.0');   // 14.6 V × 5 A
   assert.equal(d.avgW.toFixed(1), '68.5');   // (12.8 + 14.6) / 2 × 5 A
 });
+
+test('deriveJob: per-cell absorb/float overrides, capped at the chemistry maximum', () => {
+  const env = { deviceImax: 10, clampV: 32, clampA: 10 };
+  const d = deriveJob({ chemistry: 'lifepo4', cells: 4, capacityAh: 100, chargeA: 5, absorbCellV: 3.55, floatCellV: 3.35 }, env);
+  assert.equal(d.absorbV.toFixed(2), '14.20'); assert.equal(d.floatV.toFixed(2), '13.40'); assert.equal(d.cellCapped, false);
+  const hot = deriveJob({ chemistry: 'lifepo4', cells: 4, capacityAh: 100, chargeA: 5, absorbCellV: 3.9 }, env);
+  assert.equal(hot.absorbV.toFixed(2), '14.60'); assert.equal(hot.cellCapped, true);
+  const dflt = deriveJob({ chemistry: 'liion', cells: 4, capacityAh: 10, chargeA: 2, floatCellV: 4.0 }, env);
+  assert.equal(dflt.absorbV.toFixed(2), '16.80'); assert.equal(dflt.floatV, null, 'Li-ion has no float stage');
+});
