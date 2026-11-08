@@ -17,6 +17,11 @@ The same panel runs two ways: as an Electron desktop app that finds the supply
 by itself, or in Chrome/Edge over WebSerial. The protocol has been confirmed on
 real hardware: reads, writes, output on/off, CV/CC, OCP trip and baud change.
 
+<p align="center">
+  <img src="docs/screenshots/app-psu.png" width="400" alt="The desktop app in PSU mode: measured V/A/W on the left, V-SET/A-SET on the right, presets and steppers below">
+  <img src="docs/screenshots/app-charger.png" width="400" alt="The desktop app in charger mode: a 4S LiFePO4 180 Ah job with absorb and charge current as the setpoints">
+</p>
+
 ## Protocol / register map
 
 **[docs/PROTOCOL.md](docs/PROTOCOL.md)** is the reference for talking to the
