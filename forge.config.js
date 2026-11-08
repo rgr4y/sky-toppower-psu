@@ -1,5 +1,11 @@
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { readFileSync } from 'node:fs';
+
+// Official checksums shipped in the electron npm package. With these, @electron/get validates the
+// cached zip (fetched by `npm ci`) offline; without them it fetches SHASUMS256.txt from GitHub
+// uncached, and a GitHub 504 there forces a full re-download (and fails the build).
+const electronChecksums = JSON.parse(readFileSync(new URL('./node_modules/electron/checksums.json', import.meta.url)));
 
 // macOS signing + notarization, driven by env (local: ./.env via `make dist`; CI: repo secrets).
 // APP_IDENTITY = Developer ID Application identity (name or SHA-1, `security find-identity -v -p codesigning`).
@@ -13,6 +19,7 @@ export default {
   packagerConfig: {
     asar: true,
     appBundleId: 'com.rgr4y.sky-toppower-psu',
+    download: { checksums: electronChecksums },
     // Hardened runtime + osx-sign's default Electron entitlements.
     ...(APP_IDENTITY && { osxSign: { identity: APP_IDENTITY } }),
     ...(notarize && {
