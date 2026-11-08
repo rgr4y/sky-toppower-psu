@@ -72,24 +72,24 @@
   <div class="psu active" id="psu">
     <div class="topbar">
       <span class="title">STP2S <b id="titleMode" style="color:var(--muted);font-weight:600;">· PSU</b></span>
+      <a class="byline" href="https://github.com/rgr4y" target="_blank" rel="noopener">by Rob Vella</a>
       <span class="actions">
         <button class="gearbtn" id="connectBtn" title="Connect STP2S" aria-label="Connect STP2S">🔌</button>
         <span class="linkwrap"><span class="linkdot off" id="linkDot" title="Not connected" role="img" aria-label="Not connected"></span><span class="linktip" id="linkTip" role="status"></span></span>
-        <button class="gearbtn" id="chargeBtn" title="Charge" aria-label="Charge">⚡</button>
+        <button class="gearbtn charger-only" id="chargeBtn" title="Charge" aria-label="Charge">⚡</button>
         <button class="gearbtn" id="gearBtn" title="Settings" aria-label="Settings">⚙</button>
       </span>
     </div>
     <div class="stage-wrap">
       <div class="glass">
         <div class="setrow">
-          <span>SET <b id="setrowV">--.-- V</b></span>
-          <span id="setrowALabel">LIMIT <b id="setrowA">-.--- A</b></span>
           <span id="modeTag" style="color:var(--a);">⚡ Charger</span>
         </div>
+        <!-- Split like the real unit: measured | unit | setpoint. Sparklines sit behind the measured digits. -->
         <div class="digits">
-          <div class="line"><span class="num v" id="digV">--.--</span><span class="spark" id="sparkV"></span><span class="u v">V</span></div>
-          <div class="line"><span class="num a" id="digA">-.---</span><span class="spark" id="sparkA"></span><span class="u a">A</span></div>
-          <div class="line"><span class="num w" id="digW">--.--</span><span class="spark" id="sparkW"></span><span class="u w">W</span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkV"></span><span class="num v" id="digV">--.--</span></span><span class="u v">V</span><span class="setpt v"><span class="num" id="setrowV">--.--</span><small>V-SET</small></span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkA"></span><span class="num a" id="digA">-.---</span></span><span class="u a">A</span><span class="setpt a"><span class="num" id="setrowA">-.---</span><small>A-SET</small></span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkW"></span><span class="num w" id="digW">--.--</span></span><span class="u w">W</span><span></span></div>
         </div>
         <div class="statusbar">
           <span class="in psu-only" id="uinReadout">U-IN --.- V ·</span>
@@ -124,9 +124,10 @@
       <!-- CHARGER MODE: chemistry/profile picker (replaces the PSU preset row) -->
       <div class="adj profile charger-only">
         <div class="chem-row" id="chemRow">
-          <button class="chem" id="chemLeadAcid" title="Load lead-acid curve into config">🔋 Lead Acid · 12 V</button>
+          <button class="chem" id="chemJob" title="Edit the charge job">🔋 --</button>
         </div>
       </div>
+      <!-- Filled from the ⚡ Charge view's derived job (chgRenderPreview) -->
       <div class="curve-summary charger-only" id="curveSummary">
         <span>Absorb <b id="csAbsorb">--.--</b> V</span>
         <span>Float <b id="csFloat">--.--</b> V</span>
@@ -142,6 +143,7 @@
           <button data-preset="12.0">12 V</button>
           <button data-preset="13.8">13.8 V</button>
           <button data-preset="20.0">20 V</button>
+          <button data-preset="24.0">24 V</button>
         </div>
       </div>
       <div class="adj">
@@ -182,32 +184,6 @@
     <div class="modeswitch">
       <div class="lbl" id="modeLbl">⚡ Charger Mode<small>full charge state machine active</small></div>
       <button id="cfgModeBtn">⇄ Switch to PSU</button>
-    </div>
-
-    <div class="sec">
-      <div class="sec-title disp">🎚 Device Presets · M1–M6</div>
-      <div class="field">
-        <div class="name">Write panel presets to device<small>3.3 / 5 / 9 / 12 / 13.8 / 20 V + matched A → M1–M6 (buck: V capped at input)</small></div>
-        <button class="logsbtn" id="syncPresetsBtn">Write M1–M6</button>
-      </div>
-    </div>
-
-    <div class="sec charge-only">
-      <div class="sec-title charge">⚡ Charge Profile</div>
-      <div class="field" data-obj="cfg_absorb_voltage" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Absorb voltage<small>CV target</small></div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
-      <div class="field" data-obj="cfg_float_voltage" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Float voltage</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
-      <div class="field" data-obj="cfg_charge_max_a" data-min="0" data-max="5" data-step="0.05" data-dec="2"><div class="name">Max charge current</div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
-      <div class="field" data-obj="cfg_absorb_taper_a" data-min="0" data-max="5" data-step="0.05" data-dec="2"><div class="name">Taper current<small>absorb → float</small></div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
-      <div class="field" data-obj="cfg_charge_done_a" data-min="0" data-max="2" data-step="0.05" data-dec="2"><div class="name">Done current<small>float → complete</small></div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
-      <div class="field" data-obj="cfg_absorb_max_sec" data-min="0" data-max="600" data-step="1" data-dec="0" data-unitconv="sec2min"><div class="name">Absorb timeout</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">min</span></div>
-      <div class="field" data-obj="cfg_charge_min_on_sec" data-min="0" data-max="3600" data-step="10" data-dec="0"><div class="name">Min on-time</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">s</span></div>
-    </div>
-
-    <div class="sec charge-only">
-      <div class="sec-title charge">🔋 Source / Vin Gate</div>
-      <div class="field" data-obj="cfg_charge_vin_start" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Start charge above</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
-      <div class="field" data-obj="cfg_charge_vin_stop" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Stop charge below</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
-      <div class="field" data-obj="cfg_charge_vin_max" data-min="0" data-max="40" data-step="0.05" data-dec="2"><div class="name">Overvoltage abort</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
     </div>
 
     <div class="sec">
@@ -296,15 +272,14 @@
       <div class="field"><div class="name">Charge current<small>applied</small></div><span class="diagval" id="chgChargeA">-.-- A</span></div>
       <div class="field"><div class="name">C-rate</div><span class="diagval" id="chgCRateOut">-.-- C</span></div>
       <div class="field"><div class="name">Taper current<small>CV → float</small></div><span class="diagval" id="chgTaperA">-.-- A</span></div>
+      <div class="field"><div class="name">Max watts<small>absorb V × charge A, end of CC</small></div><span class="diagval" id="chgMaxW">-.- W</span></div>
+      <div class="field"><div class="name">Average watts<small>est. over CC, nominal → absorb</small></div><span class="diagval" id="chgAvgW">-.- W</span></div>
       <div class="charge-msg warn" id="chgClampWarn" style="display:none;margin-top:8px;">⚠ Charge current limited by device / safety-clamp max</div>
     </div>
 
     <div class="sec">
-      <div class="sec-title charge">▶ Control</div>
-      <div class="field">
-        <button class="logsbtn" id="chgStartBtn" disabled>▶ Start</button>
-        <button class="rebootbtn" id="chgAbortBtn" style="margin-left:8px;" disabled>■ Abort</button>
-      </div>
+      <div class="sec-title charge">▶ Status</div>
+      <!-- Start/Abort live on the face: the OUTPUT button becomes START / ABORT CHARGE in charger mode. -->
       <div class="field" style="align-items:flex-start;">
         <div class="name" style="flex:none;margin-right:8px;">Status</div>
         <div id="chgStatusLine" style="font-family:var(--mono);font-size:12.5px;color:var(--txt);line-height:1.7;">Idle</div>
@@ -391,16 +366,6 @@ import { selectTransport } from '/transport/select.js';
     'button/device_restart':'Device Restart',
     'number/set_voltage':'Set Voltage',
     'number/set_current':'Set Current',
-    'number/cfg_charge_vin_start':'Cfg Charge Vin Start',
-    'number/cfg_charge_vin_stop':'Cfg Charge Vin Stop',
-    'number/cfg_charge_vin_max':'Cfg Charge Vin Max',
-    'number/cfg_absorb_voltage':'Cfg Absorb Voltage',
-    'number/cfg_float_voltage':'Cfg Float Voltage',
-    'number/cfg_absorb_taper_a':'Cfg Absorb Taper A',
-    'number/cfg_charge_done_a':'Cfg Charge Done A',
-    'number/cfg_absorb_max_sec':'Cfg Absorb Max Sec',
-    'number/cfg_charge_max_a':'Cfg Charge Max A',
-    'number/cfg_charge_min_on_sec':'Cfg Charge Min On Sec',
     'number/cfg_max_voltage':'Cfg Max Voltage',
     'number/cfg_max_current':'Cfg Max Current',
     'number/cfg_max_power':'Cfg Max Power',
@@ -817,7 +782,7 @@ import { selectTransport } from '/transport/select.js';
       chgShowLinkLostWarning();
     }
     _chgWasLive = live;
-    updateChgStartEnabled();
+    renderOutputBtn();
   }
 
   function scheduleReconnect(){
@@ -847,7 +812,7 @@ import { selectTransport } from '/transport/select.js';
       case 'sensor/output_current': chgLastI = data.value; digA(data.value); chgOnTelemetry(); return;
       case 'sensor/output_power': digW(data.value); return;
       case 'sensor/aux_voltage': uinReadout(data.value); return;   // STP2S APS reg: display only, kept out of the charger's Vin
-      case 'sensor/input_voltage': chgLastVin = data.value; uinReadout(data.value); chgOnTelemetry(); return;
+      case 'sensor/input_voltage': uinReadout(data.value); return;
       case 'sensor/ntc_onboard': tempReadout(data.value); return;
       case 'sensor/ntc_buck': buckReadout(data.value); return;
       case 'sensor/effective_charge_cap': return; // reserved for future use
@@ -881,8 +846,8 @@ import { selectTransport } from '/transport/select.js';
   function digV(v){ el('digV').textContent = fmt(v,2); pushHist('v', v); }
   function digA(v){ el('digA').textContent = fmt(v,3); pushHist('a', v); }
   function digW(v){ el('digW').textContent = fmt(v,2); pushHist('w', v); }
-  function setrowV(v){ el('setrowV').textContent = fmt(v,2) + ' V'; }
-  function setrowA(v){ el('setrowA').textContent = fmt(v,3) + ' A'; }
+  function setrowV(v){ el('setrowV').textContent = fmt(v,2); }
+  function setrowA(v){ el('setrowA').textContent = fmt(v,3); }
   function uinReadout(v){ el('uinReadout').textContent = 'U-IN ' + fmt(v,1) + ' V ·'; }
   // STP2S internal temp (reg 0x0003, °C); also feeds the OTP pill tooltip.
   function tempReadout(v){
@@ -959,10 +924,17 @@ import { selectTransport } from '/transport/select.js';
 
   function outputEnable(on){
     outputOn = !!on;   // gates pushHist so the graphs freeze the moment output drops
+    renderOutputBtn();
+  }
+  // PSU mode: raw output toggle. Charger mode: starts/aborts the charge engine instead, so the
+  // output is never flipped behind the engine's back.
+  function renderOutputBtn(){
     var b = el('outputBtn');
-    b.textContent = 'OUTPUT  ' + (on ? 'ON' : 'OFF');
+    var on = psuMode ? outputOn : chgIsRunning();
+    b.textContent = psuMode ? 'OUTPUT  ' + (on ? 'ON' : 'OFF') : (on ? 'ABORT  CHARGE' : 'START  CHARGE');
     b.className = 'onoff ' + (on ? 'on' : 'off');
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.disabled = !psuMode && !on && (!chgLinkLive() || !chgTelemetryReady());
   }
 
   function setMode(isPsu){
@@ -980,6 +952,8 @@ import { selectTransport } from '/transport/select.js';
       ? '🔌 PSU Mode<small>manual supply · charge logic off</small>'
       : '⚡ Charger Mode<small>full charge state machine active</small>';
     el('cfgModeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
+    renderOutputBtn();
+    if(!isPsu) chgRenderPreview();   // fill the face's job label + curve summary
   }
 
   function displayTest(on){
@@ -1135,9 +1109,6 @@ import { selectTransport } from '/transport/select.js';
     if(obj === 'cfg_temp_shutdown') shutdownTemp = v;
     if(obj === 'cfg_temp_resume') resumeTemp = v;
     // Mirror the live curve values into the charger-face summary.
-    if(obj === 'cfg_absorb_voltage') el('csAbsorb').textContent = fmt(v,2);
-    if(obj === 'cfg_float_voltage')  el('csFloat').textContent  = fmt(v,2);
-    if(obj === 'cfg_charge_max_a')   el('csMaxA').textContent   = fmt(v,2);
     var field = document.querySelector('.field[data-obj="' + obj + '"]');
     if(!field) return;
     field.setAttribute('data-current', v);
@@ -1213,36 +1184,12 @@ import { selectTransport } from '/transport/select.js';
     });
   }
 
-  // ---- chemistry profiles (charger mode) ----
-  // Each entry loads a static curve into the existing Cfg number entities; the
-  // values stay editable in config afterward. Add a sibling + a chip button to
-  // support another chemistry. The global max V/A/W clamp is the hard ceiling.
-  var PROFILES = {
-    leadacid: {
-      cfg_absorb_voltage: 14.4, cfg_float_voltage: 13.8,
-      cfg_charge_max_a: 3.5,    cfg_absorb_taper_a: 1.5,
-      cfg_charge_vin_start: 13.8, cfg_charge_vin_stop: 13.2, cfg_charge_vin_max: 15.0
-    }
-  };
-  function applyProfile(name){
-    var p = PROFILES[name];
-    if(!p) return;
-    Object.keys(p).forEach(function(obj){
-      cancelPost('number', obj);
-      post('number', obj, 'set', p[obj]);   // fires the config field + curve-summary echo
-    });
-  }
-  function wireProfiles(){
-    var chip = el('chemLeadAcid');
-    if(chip) chip.addEventListener('click', function(){ applyProfile('leadacid'); });
-  }
-
   // ================= CHARGE (programmable charging, Task 13) =================
   // Ties the pure charge engine (src/charge/*) to the panel. The engine/runner
   // never touch the DOM or the transport directly — this section is the only
   // glue: it feeds live telemetry in, and turns the runner's writes into the
   // same post() calls the rest of the panel already uses.
-  var chgLastV = null, chgLastI = null, chgLastVin = null, chgLastCC = null;
+  var chgLastV = null, chgLastI = null, chgLastCC = null;
   var chgLog = [];
   var CHG_LOG_MAX = 200000;   // ~16h of samples at the 300ms feed cadence below
   var CHG_FEED_MS = 300;
@@ -1278,12 +1225,12 @@ import { selectTransport } from '/transport/select.js';
     if(!isFinite(vMax) || vMax <= 0) vMax = 30;
     if(!isFinite(aMax) || aMax <= 0) aMax = 5;
     var ovpField = document.querySelector('.field[data-obj="cfg_max_voltage"]');
-    var ocpField = document.querySelector('.field[data-obj="cfg_max_current"]');
     var ovp = ovpField ? parseFloat(ovpField.getAttribute('data-current')) : NaN;
-    var ocp = ocpField ? parseFloat(ocpField.getAttribute('data-current')) : NaN;
     var vSrc = 'psu';
     if(isFinite(ovp) && ovp > 0 && ovp < vMax){ vMax = ovp; vSrc = 'ovp'; }
-    if(isFinite(ocp) && ocp > 0) aMax = Math.min(aMax, ocp);
+    // No OCP clamp on current: the STP2S's SetOCP follows SetI (seen 0.300/0.300, 0.500/0.500,
+    // 6.000/6.000), so clamping to OCP pinned the charge current to whatever Iset last was.
+    // If OCP were independent and armed, overshooting it trips the output off: fails safe.
     return { clampV: vMax, clampA: aMax, vSrc: vSrc };
   }
 
@@ -1323,6 +1270,13 @@ import { selectTransport } from '/transport/select.js';
     el('chgChargeA').textContent = d.chargeA.toFixed(2) + ' A';
     el('chgCRateOut').textContent = (job.capacityAh > 0 ? (d.chargeA / job.capacityAh).toFixed(2) : '-.--') + ' C';
     el('chgTaperA').textContent = d.taperA.toFixed(2) + ' A';
+    el('chgMaxW').textContent = d.maxW.toFixed(1) + ' W';
+    el('chgAvgW').textContent = d.avgW.toFixed(1) + ' W';
+    // Charger-mode face: job label + curve summary mirror this job.
+    el('chemJob').textContent = '🔋 ' + CHG_PROFILES[job.chemistry].name + ' · ' + job.cells + 'S · ' + job.capacityAh + ' Ah';
+    el('csAbsorb').textContent = d.absorbV.toFixed(2);
+    el('csFloat').textContent = d.floatV == null ? '—' : d.floatV.toFixed(2);
+    el('csMaxA').textContent = d.chargeA.toFixed(2);
     // Applied current below what the user asked → the device/clamp is limiting it.
     el('chgClampWarn').style.display = (d.requestedA - d.chargeA > 0.01) ? '' : 'none';
     // Absorb capped: safe (output never exceeds the cap) but the pack won't reach full charge.
@@ -1341,15 +1295,9 @@ import { selectTransport } from '/transport/select.js';
   function setChgInputsDisabled(disabled){
     ['chgChem','chgCells','chgCapacity','chgChargeReq'].forEach(function(id){ el(id).disabled = disabled; });
   }
-  function updateChgStartEnabled(){
-    var btn = el('chgStartBtn'); if(!btn) return;
-    btn.disabled = chgIsRunning() || !chgLinkLive() || !chgTelemetryReady();
-  }
   function updateChgButtons(){
-    var hasJob = chargeRunner.state && chargeRunner.stage !== 'IDLE';
-    el('chgAbortBtn').disabled = !hasJob;
     setChgInputsDisabled(chgIsRunning());
-    updateChgStartEnabled();
+    renderOutputBtn();
   }
 
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1398,7 +1346,7 @@ import { selectTransport } from '/transport/select.js';
     if(chgFeedTimer) return;   // already running
     chgFeedTimer = setInterval(function(){
       chargeRunner.feed({
-        v: chgLastV, i: chgLastI, vin: chgLastVin,
+        v: chgLastV, i: chgLastI,
         packTemp: tempReader.latest('pack'),
         packTempStale: tempReader.isStale('pack', performance.now()),
         cccv: chgLastCC,
@@ -1441,7 +1389,7 @@ import { selectTransport } from '/transport/select.js';
   // a no-op until start() has been called at least once (this.state is null).
   chgStartFeedLoop();
 
-  function chgOnTelemetry(){ updateChgStartEnabled(); chgRenderPreview(); }
+  function chgOnTelemetry(){ renderOutputBtn(); chgRenderPreview(); }
 
   // Persistent, honest warning for the "link dropped mid-charge" case (see
   // setLink()): stays up until the operator explicitly dismisses it (they've
@@ -1519,23 +1467,26 @@ import { selectTransport } from '/transport/select.js';
     // }).catch(function(){ /* no daemon / no endpoint — leave the field as-is */ });
     // // Keep the status-bar probe readout honest when the stream goes stale.
     // setInterval(probeReadout, 1000);
-    ['chgChem','chgCells','chgCapacity','chgChargeReq'].forEach(function(id){
+    // Charge job inputs persist across launches (per-origin localStorage; Electron keeps it in userData).
+    var CHG_JOB_KEY = 'stp2s.chargeJob', CHG_JOB_IDS = ['chgChem','chgCells','chgCapacity','chgChargeReq'];
+    try {
+      var saved = JSON.parse(localStorage.getItem(CHG_JOB_KEY) || '{}');
+      CHG_JOB_IDS.forEach(function(id){
+        if(saved[id] == null) return;
+        if(id === 'chgChem' && !CHG_PROFILES[saved[id]]) return;   // chemistry since removed: keep default
+        el(id).value = saved[id];
+      });
+    } catch(e){ console.warn('charge job restore:', e); }
+    function saveChgJob(){
+      var job = {}; CHG_JOB_IDS.forEach(function(id){ job[id] = el(id).value; });
+      try { localStorage.setItem(CHG_JOB_KEY, JSON.stringify(job)); } catch(e){ console.warn('charge job save:', e); }
+    }
+    CHG_JOB_IDS.forEach(function(id){
       el(id).addEventListener('input', chgRenderPreview);
       el(id).addEventListener('change', chgRenderPreview);
-    });
-    el('chgStartBtn').addEventListener('click', function(){
-      if(chgIsRunning() || !chgLinkLive() || !chgTelemetryReady()) return;
-      chgHideLinkLostWarning();
-      _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
-      chgStartFeedLoop();             // re-arm in case a prior run reached terminal
-      chargeRunner.start(readChgJob(), chgEnv());
-      updateChgButtons();
+      el(id).addEventListener('input', saveChgJob);   // input, not change: survives quitting mid-edit
     });
     el('chgLinkLostDismiss').addEventListener('click', chgHideLinkLostWarning);
-    el('chgAbortBtn').addEventListener('click', function(){
-      chargeRunner.abort();
-      updateChgButtons();
-    });
     // el('chgTempConnectBtn').addEventListener('click', chgConnectTempProbe);   // probe UI commented out
     el('chgCsvBtn').addEventListener('click', function(){
       var rows = chgLog.map(function(r){
@@ -1708,19 +1659,31 @@ import { selectTransport } from '/transport/select.js';
     el('gearBtn').addEventListener('click', showConfig);
     el('cfgDone').addEventListener('click', showFace);
     el('chargeBtn').addEventListener('click', showCharge);
+    el('chemJob').addEventListener('click', showCharge);
     el('chargeDone').addEventListener('click', showFace);
     // Logs button removed with the ESP-leftover view (route kept).
 
     el('outputBtn').addEventListener('click', function(){
+      if(!psuMode){ chgStartOrAbort(); return; }
       var isOn = el('outputBtn').classList.contains('on');
       post('switch', 'output_enable', isOn ? 'turn_off' : 'turn_on');
     });
+    function chgStartOrAbort(){
+      if(chgIsRunning()){ chargeRunner.abort(); updateChgButtons(); return; }
+      if(!chgLinkLive() || !chgTelemetryReady()) return;
+      chgHideLinkLostWarning();
+      _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
+      chgStartFeedLoop();             // re-arm in case a prior run reached terminal
+      chargeRunner.start(readChgJob(), chgEnv());
+      updateChgButtons();
+    }
 
     // STP2S has no device-side mode register: PSU/Charger is a panel-local view mode
     // (the charge engine runs in the browser either way).
     function toggleMode(){
       if(!psuMode && chgIsRunning()){ window.alert('Abort the charge before switching to PSU mode.'); return; }
       setMode(!psuMode);
+      try { localStorage.setItem('stp2s.mode', psuMode ? 'psu' : 'charger'); } catch(e){ console.warn('mode save:', e); }
     }
     el('modeBtn').addEventListener('click', toggleMode);
     el('cfgModeBtn').addEventListener('click', toggleMode);
@@ -1762,14 +1725,15 @@ import { selectTransport } from '/transport/select.js';
   wireFaceSteppers();
   wireCfgSteppers();
   wirePresets();
-  wireProfiles();
   wireCharge();
   wireButtons();
   initSpark('v'); initSpark('a'); initSpark('w');
   initRoute();
 
   // ---- STP2S adaptation: single-mode PSU; hide config with no DPS analog ----
-  setMode(true);                                   // start in PSU mode; ⇄ switches to the browser-side charger
+  // Launch in the last mode switched to (PSU by default); ⇄ switches to the browser-side charger.
+  var savedMode = null; try { savedMode = localStorage.getItem('stp2s.mode'); } catch(e){ console.warn('mode restore:', e); }
+  setMode(savedMode !== 'charger');
   (function dpsAdapt(){
     var t = document.querySelector('.field[data-obj="cfg_temp_derate_start"]');
     if(t){ var sec = t.closest('.sec'); if(sec) sec.style.display = 'none'; }   // Thermal section
@@ -1782,7 +1746,6 @@ import { selectTransport } from '/transport/select.js';
     });
     var pd = document.querySelector('.field[data-obj="led_brightness"]');          // Power & Display: every row hidden
     if(pd){ var sec3 = pd.closest('.sec'); if(sec3) sec3.style.display = 'none'; }
-    var ps = el('syncPresetsBtn'); if(ps){ var sec2 = ps.closest('.sec'); if(sec2) sec2.style.display = 'none'; } // no M1-M6 registers
   })();
 
   // ---- connect UX ----
@@ -1907,21 +1870,6 @@ import { selectTransport } from '/transport/select.js';
   el('connectCfg').addEventListener('click', function(){
     el('connectOverlay').classList.remove('show');
     showConfig();
-  });
-
-  // Write the app's presets into the device's M1–M6 memory (matches the D3806
-  // preset list: voltages + paired currents). Confirms first — overwrites device memory.
-  var PANEL_PRESETS = [[3.33,1.0],[5.0,3.0],[9.0,2.0],[12.0,3.0],[13.8,4.0],[20.0,2.75]];
-  el('syncPresetsBtn').addEventListener('click', function(){
-    var B = window.DPSBackend;
-    if(!(B && B.isConnected())){ alert('Connect to the STP2S first.'); return; }
-    if(!window.confirm('Overwrite the DPS-150 M1–M6 memory slots with the panel presets?')) return;
-    var btn = el('syncPresetsBtn'), old = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Writing…';
-    B.writePresets(PANEL_PRESETS)
-      .then(function(){ btn.textContent = 'Written ✓'; })
-      .catch(function(e){ btn.textContent = 'Failed'; console.warn('writePresets:', e); })
-      .finally(function(){ setTimeout(function(){ btn.disabled = false; btn.textContent = old; }, 1500); });
   });
 
   // Support gate: tell the wrong browser instead of handing it a dead button.

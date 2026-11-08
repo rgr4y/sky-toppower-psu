@@ -1,17 +1,18 @@
 @charset "UTF-8";
 :root {
   color-scheme: dark;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --bg:#0d1117;
-  --fg:#e6edf3;
-  --txt:#c9d1d9;
-  --muted:#8b949e;
-  --dim:#7d8590;
-  --v:#2ea043;
-  --a:#ffb000;
-  --w:#58a6ff;
-  --hz:#ff4d4d;
-  --hz2:#ff8080;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bg: #0d1117;
+  --fg: #e6edf3;
+  --txt: #c9d1d9;
+  --muted: #8b949e;
+  --dim: #7d8590;
+  --v: #2ea043;
+  --a: #ffb000;
+  --w: #58a6ff;
+  --hz: #ff4d4d;
+  --hz2: #ff8080;
+  --panel-w: 660px;
 }
 
 * {
@@ -22,13 +23,15 @@
   user-select: none;
 }
 
-input, textarea {
+input,
+textarea {
   -webkit-user-select: text;
   -moz-user-select: text;
   user-select: text;
 }
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   background: var(--bg);
@@ -41,8 +44,38 @@ body {
 }
 
 .wrap {
-  max-width: 560px;
+  max-width: var(--panel-w);
   margin: 0 auto;
+}
+
+html.electron,
+html.electron body {
+  background: transparent;
+}
+
+html.electron {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+html.electron .psu {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1333333333), inset 0 -2px 6px rgba(0, 0, 0, 0.5333333333);
+}
+
+html.electron .cfg {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1333333333);
+}
+
+html.electron .topbar,
+html.electron .cfg-head {
+  -webkit-app-region: drag;
+}
+
+html.electron .topbar button,
+html.electron .topbar .linkwrap,
+html.electron .topbar a,
+html.electron .cfg-head button {
+  -webkit-app-region: no-drag;
 }
 
 button {
@@ -89,6 +122,18 @@ button {
   font-size: 18px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.topbar .byline {
+  margin-left: 10px;
+  color: var(--dim);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.topbar .byline:hover {
+  color: #8fb6f0;
+  text-decoration: underline;
 }
 
 .topbar .actions {
@@ -308,7 +353,8 @@ button {
   color: var(--muted);
 }
 
-.logline.l-V, .logline.l-VV {
+.logline.l-V,
+.logline.l-VV {
   color: var(--dim);
 }
 
@@ -365,8 +411,10 @@ button {
 }
 
 .line {
-  display: flex;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 18px;
   margin-bottom: 4px;
 }
 
@@ -376,10 +424,32 @@ button {
 
 .line .u {
   font-size: 26px;
-  margin-left: auto;
-  align-self: flex-end;
-  padding-bottom: 8px;
   opacity: 0.85;
+}
+
+.line .meas {
+  position: relative;
+}
+
+.line .meas .num {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.line .setpt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.line .setpt small {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #7d8c83;
+  text-shadow: none;
+  margin-top: -4px;
 }
 
 .v {
@@ -403,12 +473,9 @@ button {
 
 /* inline sparkline per readout (fed from SSE history; hover pauses + inspects) */
 .line .spark {
-  flex: 1 1 0;
-  min-width: 0;
-  align-self: center;
-  height: 54px;
-  margin: 0 16px;
-  position: relative;
+  position: absolute;
+  inset: 8px 0;
+  opacity: 0.45;
   cursor: crosshair;
 }
 
@@ -459,7 +526,8 @@ button {
   font-weight: 700;
 }
 
-.cv, .cc {
+.cv,
+.cc {
   padding: 3px 7px;
   border-radius: 5px;
   font-size: 12px;
@@ -529,7 +597,8 @@ button {
   position: relative;
 }
 
-.pp[data-tip]:hover::after, .pp[data-tip]:focus-visible::after {
+.pp[data-tip]:hover::after,
+.pp[data-tip]:focus-visible::after {
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 6px);
@@ -1382,7 +1451,8 @@ button {
 }
 
 /* ===== CHARGE VIEW (programmable charging, Task 13) ===== */
-.chg-input, .chg-select {
+.chg-input,
+.chg-select {
   background: var(--bg);
   color: var(--fg);
   border: 1px solid #000;
@@ -1397,7 +1467,8 @@ button {
   width: 180px;
 }
 
-.chg-input:disabled, .chg-select:disabled {
+.chg-input:disabled,
+.chg-select:disabled {
   opacity: 0.5;
 }
 
@@ -1584,7 +1655,8 @@ button {
   body {
     padding: 10px 6px 30px;
   }
-  .psu, .cfg {
+  .psu,
+  .cfg {
     padding: 12px;
   }
   .topbar .title {
@@ -1608,9 +1680,14 @@ button {
     font-size: 20px;
     padding-bottom: 6px;
   }
-  .line .spark {
-    margin: 0 8px;
-    height: 40px;
+  .line {
+    column-gap: 8px;
+  }
+  .line .num {
+    font-size: 40px;
+  }
+  .w.num {
+    font-size: 32px;
   }
   .preset-row {
     gap: 4px;
