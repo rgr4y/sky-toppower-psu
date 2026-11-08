@@ -1,4 +1,4 @@
-.PHONY: app app-dev dev-name package dist serve dev css test
+.PHONY: app app-dev dev-name package dist serve dev css test bump
 .DEFAULT_GOAL := app
 
 node_modules: package.json
@@ -44,3 +44,8 @@ dev: css
 
 test:
 	npm test
+
+# Bump package.json + package-lock.json version (no commit, no tag). PART=patch|minor|major, default patch.
+PART ?= patch
+bump:
+	@npm version $(PART) --no-git-tag-version

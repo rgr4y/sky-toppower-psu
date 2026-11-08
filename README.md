@@ -59,7 +59,11 @@ make app        # build the CSS, then launch the app (same as `make` / `npm star
 make app-dev    # same, with live reload: Sass watch + window reload on any src/ change
 make package    # build the .app into out/
 make dist       # zip + dmg installers into out/make/
+make bump       # bump the patch version in package.json (PART=minor|major), no commit
 ```
+
+Every push to `main` builds the arm64 zip + dmg in GitHub Actions
+(`.github/workflows/build.yml`) and uploads them as a run artifact named with the version.
 
 There's no port picker. The app waits for the CH340 and connects when it's
 plugged in.
