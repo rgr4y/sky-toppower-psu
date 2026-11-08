@@ -133,6 +133,8 @@
         <span>Float <b id="csFloat">--.--</b> V</span>
         <span>Max <b id="csMaxA">-.--</b> A</span>
       </div>
+      <!-- Charge status (stage · reason · elapsed), mirrored from the Charge view (renderChgStatus) -->
+      <div class="curve-summary charger-only" id="chgFaceStatus">Idle</div>
       <!-- PSU MODE: quick voltage presets -->
       <div class="adj presets psu-only">
         <span class="tag"></span>
@@ -1317,13 +1319,19 @@ import { selectTransport } from '/transport/select.js';
 
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  function fmtDuration(totalS){
+    var h = Math.floor(totalS / 3600), m = Math.floor(totalS / 60) % 60, sec = totalS % 60;
+    var mmss = String(m).padStart(h ? 2 : 1, '0') + ':' + String(sec).padStart(2, '0');
+    return h ? h + ':' + mmss : mmss;
+  }
   function renderChgStatus(state){
     var parts = ['<b>' + escapeHtml(state.stage) + '</b>'];
     if(state.reason) parts.push('<span class="hazard">' + escapeHtml(state.reason) + '</span>');
     if(state.started){
       var elapsedS = Math.max(0, Math.round((performance.now() - chargeRunner.startMs) / 1000));
-      parts.push('elapsed ' + elapsedS + 's');
+      parts.push('elapsed ' + fmtDuration(elapsedS));
     }
+    el('chgFaceStatus').innerHTML = parts.join(' · ');   // face: stage, reason, elapsed only
     var packT = tempReader.latest('pack');
     var packStale = tempReader.isStale('pack', performance.now());
     parts.push('pack ' + (typeof packT === 'number' ? packT.toFixed(1) + '°C' + (packStale ? ' (stale)' : '') : '—'));
