@@ -62,8 +62,9 @@ make dist       # zip + dmg installers into out/make/
 make bump       # bump the patch version in package.json (PART=minor|major), no commit
 ```
 
-Every push to `main` builds signed, notarized arm64 and x64 zips + dmgs in GitHub Actions
-(`.github/workflows/build.yml`) and uploads one run artifact per arch, named with the version.
+Every push to `main` builds in GitHub Actions: signed, notarized macOS arm64 and x64 zips + dmgs,
+plus Linux x64 and Windows x64 zips (unsigned)
+(`.github/workflows/build.yml`) and uploads one run artifact per platform, named with the version.
 
 There's no port picker. The app waits for the CH340 and connects when it's
 plugged in.
