@@ -16,16 +16,20 @@ permissions:
 
 jobs:
   build:
-    # One native runner per arch (maker-dmg needs macOS). Standard runners are free on public repos.
+    # One native runner per OS/arch: maker-dmg and notarization need macOS, and the Windows exe's
+    # icon/version info (rcedit) needs Windows. Standard runners are free on public repos.
     strategy:
-      fail-fast: false # an x64 failure shouldn't cancel the arm64 build, or vice versa
+      fail-fast: false # one platform failing shouldn't cancel the others
       matrix:
         include:
-          - arch: arm64
-            runner: macos-latest
-          - arch: x64
-            runner: macos-26-intel
+          - { os: macos, arch: arm64, runner: macos-latest, electron-cache: ~/Library/Caches/electron }
+          - { os: macos, arch: x64, runner: macos-26-intel, electron-cache: ~/Library/Caches/electron }
+          - { os: linux, arch: x64, runner: ubuntu-latest, electron-cache: ~/.cache/electron }
+          - { os: windows, arch: x64, runner: windows-latest, electron-cache: ~/AppData/Local/electron/Cache }
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash # Git Bash on Windows
     steps:
       - uses: actions/checkout@v7
 
@@ -39,7 +43,7 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "### sky-toppower-psu $version, ${{ matrix.arch }} (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
+          echo "### sky-toppower-psu $version, ${{ matrix.os }}-${{ matrix.arch }} (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
 
       - run: npm ci
 
@@ -50,7 +54,7 @@ jobs:
       # mirror; validated against electron/checksums.json either way) and cache it between runs.
       - uses: actions/cache@v6
         with:
-          path: ~/Library/Caches/electron
+          path: ${{ matrix.electron-cache }}
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
 
       - name: Fetch Electron
@@ -60,6 +64,7 @@ jobs:
       # build is labelled UNSIGNED (artifact name + summary) rather than quietly shipping unsigned.
       - name: Import signing certificate
         id: sign
+        if: matrix.os == 'macos'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -122,7 +127,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: sky-toppower-psu-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}${{ steps.sign.outputs.suffix }}
+          name: sky-toppower-psu-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}${{ steps.sign.outputs.suffix }}
           path: |
             out/make/**/*.zip
             out/make/**/*.dmg
