@@ -1,0 +1,54 @@
+# PlatformIO
+.pio/
+.pio
+
+# VS Code
+.vscode/
+.vscode
+*.code-workspace
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System Files
+.DS_Store
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*~
+
+# Partitions
+partitions.bin
+partitions.csv.md5
+*.bin
+*.md5
+
+
+# temp paste file
+temp-paste-file
+
+# vendor docs/software, brief, saved listing — local only
+vendor/
+.agent-brief.md
+Amazon.com_*.pdf
+/tmp/
+
+# Electron build output
+/out/
+
+# Developer-specific settings and Python caches
+.claude/
+__pycache__/
+*.py[cod]
+
+# Environment and device credentials
+.env*
+secrets.yaml
+
+# Hardware captures
+/docs/dumps/

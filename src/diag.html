@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STP2S Diag</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{color-scheme:light dark;--bg:#f5f5f5;--fg:#222;--card:#fff;--mut:#8886;--v:#2a9d00;--i:#2c7be5;--p:#d9730d;--bad:#e74c3c;--ok:#2ecc71}
+  @media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--card:#1e1e1e;--v:#64ff00;--i:#5aa7ff;--p:#ffa24a}}
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px 16px;background:var(--bg);color:var(--fg);font:15px system-ui;max-width:720px}
+  h3{margin:4px 0 12px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .card{background:var(--card);border-radius:8px;padding:12px;margin:0 0 12px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .big{display:flex;gap:20px;font:600 clamp(30px,9vw,46px) ui-monospace,monospace;flex-wrap:wrap}
+  .big small{font:13px system-ui;opacity:.6;display:block}
+  #v{color:var(--v)}#i{color:var(--i)}#p{color:var(--p)}
+  button,input,select{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid var(--mut);background:var(--card);color:var(--fg)}
+  input[type=number]{width:7em}
+  button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}
+  #off{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:600}
+  .chips span{display:inline-block;margin:0 6px 6px 0;padding:2px 8px;border-radius:10px;background:var(--mut);font-size:13px}
+  .chips .on{background:#8c8c8c;color:#fff}.chips .trip{background:var(--bad);color:#fff}
+  #mode{padding:2px 10px;border-radius:10px;font-weight:600;background:var(--mut)}
+  #mode.CV{background:var(--ok);color:#012}#mode.CC{background:var(--p);color:#012}
+  #link{font-size:13px;padding:2px 8px;border-radius:10px;background:var(--mut)}
+  #link.ok{background:var(--ok);color:#012}#link.lost{background:var(--bad);color:#fff}
+  #log{font:12px ui-monospace,monospace;height:8em;overflow:auto;white-space:pre-wrap}
+  #traceLog{margin:8px 0 0;height:14em;overflow:auto;font:12px/1.45 ui-monospace,monospace;background:var(--bg);border-radius:6px;padding:6px 8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .k{opacity:.6;font-size:13px}
+  label.sw{display:flex;gap:6px;align-items:center}
+  @media (max-width:420px){input[type=number]{width:6em}}
+</style>
+<h3>SKY TOPPOWER STP2S <span id=link>disconnected</span> <span id=mode>--</span></h3>
+
+<div class=card><div class=row>
+  <button id=conn>Connect</button><button id=disc disabled>Disconnect</button>
+  <label>slave <input id=slave type=number value=1 min=1 max=250 style="width:4.5em"></label>
+  <label>baud <select id=baud><option>9600<option selected>19200</select></label>
+  <span class=k>baud/slave must match the panel menu (BPS/ADDR). Baud change needs a front-switch power cycle.</span>
+</div></div>
+
+<div class=card>
+  <div class=big>
+    <div><span id=v>--</span><small>V</small></div>
+    <div><span id=i>--</span><small>A</small></div>
+    <div><span id=p>--</span><small>W</small></div>
+  </div>
+  <div class=grid style="margin-top:10px">
+    <div><div class=k>Temp</div><span id=temp>--</span> °C</div>
+    <div><div class=k>Aux (APS)</div><span id=aux>--</span> V</div>
+    <div><div class=k>Limits</div><span id=lim>--</span></div>
+    <div><div class=k>Output</div><b id=outst>--</b></div>
+  </div>
+  <div class=chips id=bits style="margin-top:10px"></div>
+</div>
+
+<div class=card>
+  <div class=row><label class=sw><input type=checkbox id=wr> enable writes</label>
+    <span class=k>needed for everything except Output OFF</span></div>
+  <div class=row style="margin-top:10px">
+    <button id=on disabled>Output ON</button><button id=off disabled>Output OFF</button>
+  </div>
+  <div class=row style="margin-top:10px">
+    <label>Set V <input id=sv type=number step=0.01 min=0></label><button data-set=v disabled>Set</button>
+    <label>Set A <input id=si type=number step=0.001 min=0></label><button data-set=i disabled>Set</button>
+  </div>
+  <div class=k style="margin-top:6px">device: <span id=setnow>--</span></div>
+</div>
+
+<div class=card>
+  <b>Protection</b>
+  <div class=row style="margin-top:8px">
+    <label>OVP V <input id=ovp type=number step=0.01 min=0></label><button data-set=ovp disabled>Set</button>
+    <label>OCP A <input id=ocp type=number step=0.001 min=0></label><button data-set=ocp disabled>Set</button>
+  </div>
+  <div class=k style="margin:6px 0">OPP (read-only): <span id=opp>--</span> W — 32-bit register, not writable with FC06</div>
+  <div class=row>
+    <label class=sw><input type=checkbox data-sw=ovpSw disabled> OVP on</label>
+    <label class=sw><input type=checkbox data-sw=ocpSw disabled> OCP on</label>
+    <label class=sw><input type=checkbox data-sw=oppSw disabled> OPP on</label>
+  </div>
+</div>
+
+<div class=card>
+  <b>Device</b>
+  <div class=row style="margin-top:8px">
+    <label class=sw><input type=checkbox data-sw=lockSw disabled> key lock</label>
+    <label class=sw><input type=checkbox data-sw=beepSw disabled> beep</label>
+    <label class=sw><input type=checkbox data-sw=noSw disabled> output ON at power-up (NO)</label>
+  </div>
+</div>
+
+<div class=card><div id=log></div></div>
+<div class=card>
+  <div class=row><label class=sw><input type=checkbox id=debugToggle> console debug logging</label>
+  <label class=sw><input type=checkbox id=traceToggle> serial trace</label>
+  <button id=traceClear>Clear</button><button id=traceCopy>Copy</button><button id=traceSave>Save</button></div>
+  <pre id=traceLog tabindex=0 aria-label="Serial trace log"></pre>
+</div>
+
+<script type=module>
+import { WebSerialTransport } from './transport/webserial.js';
+import { TracedTransport } from './transport/tap.js';
+import { bindTraceUI } from './ui/trace-ui.js';
+import { debug } from './ui/debug.js';
+import { STP2S } from './psu/stp2s.js';
+import { PanelController, STATUS_BITS } from './ui/controller.js';
+
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const l = $('log'); l.textContent += new Date().toLocaleTimeString() + ' ' + m + '\n'; l.scrollTop = l.scrollHeight; };
+let ctl = null, transport = null, port = null;
+if (new URLSearchParams(location.search).get('debug') === '1') debug.set(true);
+const trace = { trace: false, get: () => transport };
+const traceUI = bindTraceUI(document, trace);
+const touched = new Set(); // inputs the user edited: don't overwrite while typing
+let lastLink = null;       // log link transitions once, not on every render
+
+if (!('serial' in navigator)) log('WebSerial unavailable: use Chrome/Edge in a secure browser context');
+
+const gated = () => document.querySelectorAll('[data-set],[data-sw],#on,#off');
+const setEnabled = (on) => gated().forEach((e) => { e.disabled = !on; });
+
+function render(s) {
+  const link = $('link'); link.textContent = s.link === 'ok' ? 'connected' : s.link === 'lost' ? 'link lost' : 'disconnected';
+  link.className = s.link;
+  if (s.link === 'lost' && lastLink !== 'lost') log('link lost: ' + s.lastError);
+  lastLink = s.link;
+  if (s.vout !== undefined) { $('v').textContent = s.vout.toFixed(2); $('i').textContent = s.iout.toFixed(3); $('p').textContent = s.pout.toFixed(3); }
+  if (s.bits) {
+    $('mode').textContent = s.mode; $('mode').className = s.mode;
+    $('temp').textContent = s.temp; $('aux').textContent = s.aux.toFixed(1);
+    $('outst').textContent = s.output ? 'ON' : 'OFF';
+    $('bits').innerHTML = STATUS_BITS.map((n) => {
+      const trip = s.bits[n] && ['ovp', 'ocp', 'opp', 'otp'].includes(n);
+      return `<span class="${trip ? 'trip' : s.bits[n] ? 'on' : ''}">${n.toUpperCase()}${trip ? ' TRIP' : ''}</span>`;
+    }).join('');
+  }
+  if (s.limits) $('lim').textContent = `${s.limits.vmax} V / ${s.limits.imax} A / ${s.limits.pmax.toFixed(1)} W`;
+  if (s.set) {
+    const v = s.set;
+    $('setnow').textContent = `${v.setV.toFixed(2)} V, ${v.setI.toFixed(3)} A`;
+    $('opp').textContent = v.setOPP.toFixed(1);
+    const fill = (id, val) => { if (!touched.has(id) && document.activeElement !== $(id)) $(id).value = val; };
+    fill('sv', v.setV.toFixed(2)); fill('si', v.setI.toFixed(3)); fill('ovp', v.setOVP.toFixed(2)); fill('ocp', v.setOCP.toFixed(3));
+    document.querySelectorAll('[data-sw]').forEach((c) => { c.checked = !!v[c.dataset.sw]; });
+  }
+}
+
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x1a86, usbProductId: 0x7523 }] }); // CH340
+    transport = new TracedTransport(new WebSerialTransport(port), { enabled: trace.trace || debug.on, sink: traceUI.sink, annotate: STP2S.traceLabeler() });
+    const baud = +$('baud').value;
+    await transport.open({ baud });
+    const psu = new STP2S(transport, { slave: +$('slave').value, baud });
+    ctl = new PanelController(psu, { onUpdate: (s) => render(s) });
+    $('conn').disabled = true; $('disc').disabled = false;
+    log(`opened ${baud} 8N1 slave ${$('slave').value}`);
+    await ctl.start();
+    if (ctl.state.link !== 'ok') log('no valid reply: check baud/slave and that the COM port (not QC) is used');
+    syncWrites();
+  } catch (e) { log('connect: ' + e.message); await disconnect(); }
+}
+
+async function disconnect() {
+  ctl?.stop(); ctl = null;
+  try { await transport?.close(); } catch {}
+  transport = null; setEnabled(false); $('wr').checked = false;
+  $('conn').disabled = false; $('disc').disabled = true;
+  render({ link: 'idle' });
+}
+
+function syncWrites() { if (ctl) ctl.writesEnabled = $('wr').checked; setEnabled(!!ctl && $('wr').checked); $('off').disabled = !ctl; }
+
+navigator.serial?.addEventListener('disconnect', () => { log('USB device disconnected'); disconnect(); });
+$('conn').onclick = connect; $('disc').onclick = disconnect;
+$('wr').onchange = syncWrites;
+
+const act = (label, fn) => async () => {
+  try { const r = await fn(); log(`${label}: ok${r === undefined ? '' : ' (' + r + ')'}`); }
+  catch (e) { log(`${label}: ${e.message}`); }
+};
+document.querySelectorAll('[data-set]').forEach((b) => b.onclick = act('set ' + b.dataset.set, () => {
+  const id = { v: 'sv', i: 'si', ovp: 'ovp', ocp: 'ocp' }[b.dataset.set];
+  const n = parseFloat($(id).value);
+  if (!Number.isFinite(n)) throw new Error('not a number');
+  touched.delete(id);
+  return { v: () => ctl.setVoltage(n), i: () => ctl.setCurrent(n), ovp: () => ctl.setOVP(n), ocp: () => ctl.setOCP(n) }[b.dataset.set]();
+}));
+['sv', 'si', 'ovp', 'ocp'].forEach((id) => $(id).addEventListener('input', () => touched.add(id)));
+document.querySelectorAll('[data-sw]').forEach((c) => c.onchange = act(c.dataset.sw, () => ctl.setSwitch(c.dataset.sw, c.checked)));
+$('on').onclick = act('output on', () => ctl.setOutput(true));
+$('off').onclick = act('output off', () => ctl.setOutput(false)); // never gated
+</script>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SKY application icon</title>
+  <!-- Complete lettering: no cropping or clipping paths. -->
+  <!-- Full-bleed rounded square for Windows and Linux. -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="#4167a3"/>
+  <g transform="translate(4.160 310.880) scale(4.8)">
+    <g fill="none" stroke="#fff" stroke-width="3.089">
+    <!-- Upper and lower sweeps of the S, with its circular junction. -->
+    <path d="M 64.341 20.504 C 62.646 5.801 47.632 -0.673 36.559 4.618 C 20.220 12.467 21.901 36.039 39.507 41.267"/>
+    <path d="M 49.853 42.857 C 63.935 46.738 68.910 63.390 59.944 74.247 C 48.249 88.586 23.400 80.312 25.328 58.872"/>
+    <ellipse cx="44.852" cy="41.997" rx="4.055" ry="4.516" stroke-width="3.427"/>
+    <!-- K and the two descending arms of the Y. -->
+    <path d="M 81.505 2.625 V 36.319 Q 83.074 40.340 86.824 36.064 L 119.761 4.277 Q 123.013 4.142 122.991 5.787 L 150.271 45.390 Q 149.901 43.187 150.000 47.872 V 82.000"/>
+    <path d="M 81.507 82.000 V 48.197 Q 83.034 43.603 87.656 48.703 L 122.075 82.000"/>
+    <path d="M 186.575 2.625 L 161.035 39.709 Q 157.313 44.946 157.263 45.200 V 82.000"/>
+  </g>
+  </g>
+</svg>

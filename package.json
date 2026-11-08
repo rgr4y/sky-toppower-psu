@@ -1,0 +1,35 @@
+{
+  "name": "sky-toppower-psu",
+  "productName": "SKY TOPPOWER PSU",
+  "version": "1.0.0",
+  "description": "Power Supply Control Interface",
+  "main": "main.js",
+  "scripts": {
+    "start": "npm run build:css && electron-forge start",
+    "package": "npm run build:css && electron-forge package",
+    "make": "npm run build:css && electron-forge make",
+    "build:css": "sass src/styles.scss src/styles.css --no-source-map",
+    "watch:css": "sass src/styles.scss src/styles.css --no-source-map --watch",
+    "serve": "serve src -l 8150",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^8.0.1",
+    "@electron-forge/maker-dmg": "^8.0.1",
+    "@electron-forge/maker-zip": "^8.0.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^8.0.1",
+    "@electron-forge/plugin-fuses": "^8.0.1",
+    "@electron/fuses": "^2.1.3",
+    "electron": "^45.2.3",
+    "sass": "^1.108.1",
+    "serve": "^14.2.7"
+  },
+  "type": "module",
+  "private": true,
+  "allowScripts": {
+    "fs-xattr@0.3.1": true,
+    "macos-alias@0.2.12": true
+  },
+  "license": "MIT",
+  "author": "Rob Vella"
+}

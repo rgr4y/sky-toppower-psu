@@ -1,0 +1,114 @@
+# SKY TOPPOWER STP2S/E22 bench supply — ESP32 Modbus-RTU/TTL bridge (SKELETON).
+# Register map: ../docs/PROTOCOL.md (vendor doc "POWER of ModBusV25", NOT yet
+# verified on hardware). Every register/scale below is TODO until probed.
+# Wiring TODO: the PSU's USB-C COM port is a CH340 USB-serial (1a86:7523);
+# does an internal TTL UART exist to tap instead? Unknown.
+
+substitutions:
+  name: "sky-toppower-psu"
+  friendly_name: "SKY TOPPOWER PSU"
+  project_version: "2026.11.07"
+  uart_tx: "GPIO3"       # TODO verify wiring
+  uart_rx: "GPIO4"       # TODO verify wiring
+  modbus_addr: "1"       # vendor default (menu ADDR 0001)
+  poll_ms: "1s"
+  # TODO: read Umax/Imax (0x0014/0x0015) before trusting these clamps.
+  vset_max: "32.0"
+  iset_max: "10.0"
+
+packages:
+  base: !include common.yaml
+  web: !include web.yaml
+
+esp32:
+  variant: esp32c3
+
+uart:
+  id: uart_modbus
+  tx_pin: ${uart_tx}
+  rx_pin: ${uart_rx}
+  baud_rate: 9600        # vendor default; menu BPS can change it (no register documented)
+  # 8N1 = ESPHome default = vendor framing
+
+modbus:
+  id: modbus_bus
+  uart_id: uart_modbus
+
+modbus_controller:
+  - id: psu
+    address: ${modbus_addr}
+    modbus_id: modbus_bus
+    update_interval: ${poll_ms}
+
+# Vendor FC03 limit: max 4 words per read. 0x0010-0x0013 = U, I, P_hi, P_lo
+# fits exactly. Does ESPHome split ranges >4? Unknown — test before adding more.
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Output Voltage"
+    id: psu_vout
+    register_type: holding
+    address: 0x0010
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]      # TODO scale really comes from reg 0x0005 (digits nibbles)
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Output Current"
+    id: psu_iout
+    register_type: holding
+    address: 0x0011
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    accuracy_decimals: 3
+    filters: [multiply: 0.001]     # TODO unverified scale
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Output Power"
+    id: psu_power
+    register_type: holding
+    address: 0x0012
+    value_type: U_DWORD            # TODO word order per vendor: 0x0012 = upper 16
+    unit_of_measurement: "W"
+    accuracy_decimals: 2
+    filters: [multiply: 0.01]      # TODO unverified scale
+
+switch:
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Output"
+    id: psu_output
+    register_type: holding
+    address: 0x0001                # FC06 write 0/1 — drives live output; TODO test with no load
+    bitmask: 1
+    # TODO: bitmask switch may do read-modify-write; vendor only writes full word. Verify.
+
+number:
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Set Voltage"
+    id: psu_vset
+    register_type: holding
+    address: 0x0030
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    min_value: 0
+    max_value: ${vset_max}
+    step: 0.01
+    multiply: 100                  # TODO unverified scale
+  - platform: modbus_controller
+    modbus_controller_id: psu
+    name: "Set Current"
+    id: psu_iset
+    register_type: holding
+    address: 0x0031
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    min_value: 0
+    max_value: ${iset_max}
+    step: 0.001
+    multiply: 1000                 # TODO unverified scale
+
+# TODO: charge engine / profiles / soft-start from xy-sk120.yaml (XY repo) are
+# NOT ported. panel.html still expects those entity ids — see README.

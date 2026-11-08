@@ -1,0 +1,12 @@
+{
+  "cleanUrls": false,
+  "directoryListing": false,
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/panel", "destination": "/index.html" },
+    { "source": "/panel/:path*", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "**", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+  ]
+}

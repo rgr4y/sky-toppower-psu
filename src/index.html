@@ -1,0 +1,1959 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STP2S Panel</title>
+<link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- Critical mode-visibility rules, inlined so they apply during the async
+       /styles.css compile+load gap (otherwise charger-only UI flashes on reload
+       before the stylesheet arrives). Mirrors the same rules in styles.scss. -->
+  <style>
+    #psu:not(.is-charger) .charger-only{display:none}
+    #psu.is-charger .psu-only{display:none}
+    .cfg.is-psu .charge-only{display:none}
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ===== CONNECT OVERLAY (WebSerial) — blocks until a session is open =====
+       Starts hidden: boot probes for the daemon first and auto-connects it (no
+       user gesture needed). Only shown when a manual WebSerial click is required
+       (daemon absent) — see bootConnect(). -->
+  <div class="connect-ov" id="connectOverlay">
+    <div class="connect-card">
+      <div class="cicon pulse" id="connectIcon">🔌</div>
+      <h2 id="connectTitle">Connect STP2S</h2>
+      <div class="sub" id="connectSub">Not connected</div>
+      <div class="connect-steps" id="connectSteps">
+        <div><b>1.</b> Cable the STP2S <b>COM</b> USB-C port (not QC) to this computer and power the unit.</div>
+        <div><b>2.</b> Click <b>Connect</b> below.</div>
+        <div><b>3.</b> Pick the <b>CH340 / USB Serial</b> port in the prompt (only CH340 ports are listed).</div>
+      </div>
+      <button class="connect-btn" id="connectGo">🔌&nbsp; Connect</button>
+      <div class="connect-err" id="connectErr"></div>
+      <div class="connect-note">Chrome or Edge · WebSerial in a secure browser context · <button class="textbtn" id="connectCfg">Settings &amp; serial trace</button></div>
+    </div>
+  </div>
+
+  <!-- ===== EJECT CONFIRM (only when output is live) ===== -->
+  <div class="connect-ov" id="ejectOverlay">
+    <div class="connect-card">
+      <div class="cicon" style="filter:drop-shadow(0 0 12px #ffb00066)">⚠️</div>
+      <h2>Output is ON</h2>
+      <div class="sub">Disconnecting won’t stop it.</div>
+      <div class="eject-btns">
+        <button class="connect-btn ghost" id="ejectLeave">Leave running &amp; disconnect <span id="ejectCount">(5)</span></button>
+        <button class="connect-btn danger" id="ejectOff">Turn off &amp; disconnect</button>
+        <button class="connect-btn ghost quiet" id="ejectCancel">Cancel — stay connected</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SERVER STOPPED (daemon power-off) — full-screen, no reconnect ===== -->
+  <div class="connect-ov" id="shutdownOverlay">
+    <div class="connect-card">
+      <div class="cicon" style="filter:drop-shadow(0 0 12px #ff5a5a66)">⏻</div>
+      <h2>Server stopped</h2>
+      <div class="sub">The daemon released the STP2S and exited.</div>
+      <div class="connect-steps">
+        <div>Relaunch it from Raycast (<b>STP2S Panel</b>) or a terminal:</div>
+        <div><code>npm run daemon</code></div>
+        <div>…then reload this page.</div>
+      </div>
+      <button class="connect-btn" id="shutdownReload">🔄&nbsp; Reload</button>
+      <div class="connect-note">Output (if it was on) is still LIVE — the device keeps sourcing.</div>
+    </div>
+  </div>
+
+  <!-- ===== FACE VIEW ===== -->
+  <div class="psu active" id="psu">
+    <div class="topbar">
+      <span class="title">STP2S <b id="titleMode" style="color:var(--muted);font-weight:600;">· PSU</b></span>
+      <span class="actions">
+        <button class="gearbtn" id="connectBtn" title="Connect STP2S" aria-label="Connect STP2S">🔌</button>
+        <span class="linkwrap"><span class="linkdot off" id="linkDot" title="Not connected" role="img" aria-label="Not connected"></span><span class="linktip" id="linkTip" role="status"></span></span>
+        <button class="gearbtn" id="chargeBtn" title="Charge" aria-label="Charge">⚡</button>
+        <button class="gearbtn" id="gearBtn" title="Settings" aria-label="Settings">⚙</button>
+      </span>
+    </div>
+    <div class="stage-wrap">
+      <div class="glass">
+        <div class="setrow">
+          <span>SET <b id="setrowV">--.-- V</b></span>
+          <span id="setrowALabel">LIMIT <b id="setrowA">-.--- A</b></span>
+          <span id="modeTag" style="color:var(--a);">⚡ Charger</span>
+        </div>
+        <div class="digits">
+          <div class="line"><span class="num v" id="digV">--.--</span><span class="spark" id="sparkV"></span><span class="u v">V</span></div>
+          <div class="line"><span class="num a" id="digA">-.---</span><span class="spark" id="sparkA"></span><span class="u a">A</span></div>
+          <div class="line"><span class="num w" id="digW">--.--</span><span class="spark" id="sparkW"></span><span class="u w">W</span></div>
+        </div>
+        <div class="statusbar">
+          <span class="in psu-only" id="uinReadout">U-IN --.- V ·</span>
+          <span class="in" id="tempReadout">TEMP --°C</span>
+          <!-- external temp probe: no way to hook one up on the STP2S -->
+          <!-- <span class="in" id="buckReadout">· probe --°C</span> -->
+          <span class="ntc-ov-badge" id="buckOvBadge" style="display:none;">⚠ NTC BYPASS</span>
+          <span class="in stage-badge" id="stageBadge" style="display:none;padding:3px 7px;border-radius:5px;">Idle</span>
+          <span class="prot" id="protPills"><span class="pp" data-k="ovp" tabindex="0">OVP</span><span class="pp" data-k="ocp" tabindex="0">OCP</span><span class="pp" data-k="opp" tabindex="0">OPP</span><span class="pp on" data-k="otp" tabindex="0" data-tip="OTP armed · TEMP --°C">OTP</span></span>
+          <span class="cv" id="cvcvBadge" style="display:none;">CV</span>
+          <span class="cc cc-off" id="cccvBadge">CC</span>
+        </div>
+      </div>
+
+      <div class="fault" id="faultCard">
+        <h3 id="faultTitle">⚠ OVERTEMPERATURE</h3>
+        <div class="when" id="faultWhen">-- · buck sensor</div>
+        <p id="faultMsg">Board temperature exceeded the shutdown threshold and output was shut off to protect the buck MOSFET. Let the unit cool, then dismiss to resume.</p>
+        <button class="dismiss" id="faultDismiss">Dismiss</button>
+      </div>
+
+      <div class="lockout" id="lockoutOverlay">
+        <div class="ico">🌡️</div>
+        <div class="t">OVERTEMP — PLEASE WAIT</div>
+        <div class="s" id="lockoutSub">cooling · output locked</div>
+      </div>
+    </div>
+
+    <div class="ctrls">
+      <!-- CHARGER MODE: status/stop-reason banner (hidden during normal charge) -->
+      <div class="charge-msg charger-only" id="chargeMsg" style="display:none;"></div>
+      <!-- CHARGER MODE: chemistry/profile picker (replaces the PSU preset row) -->
+      <div class="adj profile charger-only">
+        <div class="chem-row" id="chemRow">
+          <button class="chem" id="chemLeadAcid" title="Load lead-acid curve into config">🔋 Lead Acid · 12 V</button>
+        </div>
+      </div>
+      <div class="curve-summary charger-only" id="curveSummary">
+        <span>Absorb <b id="csAbsorb">--.--</b> V</span>
+        <span>Float <b id="csFloat">--.--</b> V</span>
+        <span>Max <b id="csMaxA">-.--</b> A</span>
+      </div>
+      <!-- PSU MODE: quick voltage presets -->
+      <div class="adj presets psu-only">
+        <span class="tag"></span>
+        <div class="preset-row" id="presetRow" role="group" aria-label="Voltage presets">
+          <button data-preset="3.33">3.3 V</button>
+          <button data-preset="5.0">5 V</button>
+          <button data-preset="9.0">9 V</button>
+          <button data-preset="12.0">12 V</button>
+          <button data-preset="13.8">13.8 V</button>
+          <button data-preset="20.0">20 V</button>
+        </div>
+      </div>
+      <div class="adj">
+        <span class="tag v">V</span>
+        <div class="stepper" data-obj="set_voltage" data-min="0" data-max="32" data-dec="2">
+          <button data-step="-1" aria-label="Voltage −1 V">−1</button>
+          <button data-step="-0.1" aria-label="Voltage −0.1 V">−.1</button>
+          <button data-step="-0.01" aria-label="Voltage −0.01 V">−.01</button>
+          <span class="val" data-role="val" tabindex="0" title="Set voltage (V) — click or Enter to type">--.--</span>
+          <button data-step="0.01" aria-label="Voltage +0.01 V">+.01</button>
+          <button data-step="0.1" aria-label="Voltage +0.1 V">+.1</button>
+          <button data-step="1" aria-label="Voltage +1 V">+1</button>
+        </div>
+      </div>
+      <div class="adj">
+        <span class="tag a">A</span>
+        <div class="stepper" data-obj="set_current" data-min="0" data-max="10" data-dec="3">
+          <button data-step="-0.1" aria-label="Current −0.1 A">−.1</button>
+          <button data-step="-0.01" aria-label="Current −0.01 A">−.01</button>
+          <button data-step="-0.001" aria-label="Current −0.001 A">−.001</button>
+          <span class="val" data-role="val" tabindex="0" title="Set current (A) — click or Enter to type">-.---</span>
+          <button data-step="0.001" aria-label="Current +0.001 A">+.001</button>
+          <button data-step="0.01" aria-label="Current +0.01 A">+.01</button>
+          <button data-step="0.1" aria-label="Current +0.1 A">+.1</button>
+        </div>
+      </div>
+      <div class="btnrow">
+        <button class="onoff off" id="outputBtn" aria-pressed="false">OUTPUT&nbsp;&nbsp;OFF</button>
+        <button class="modebtn" id="modeBtn">⇄ CHARGER</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== CONFIG VIEW ===== -->
+  <div class="cfg is-psu" id="cfg">
+    <div class="cfg-head"><h3>⚙ Configuration</h3><button class="done" id="cfgDone">Done</button></div>
+
+    <div class="modeswitch">
+      <div class="lbl" id="modeLbl">⚡ Charger Mode<small>full charge state machine active</small></div>
+      <button id="cfgModeBtn">⇄ Switch to PSU</button>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title disp">🎚 Device Presets · M1–M6</div>
+      <div class="field">
+        <div class="name">Write panel presets to device<small>3.3 / 5 / 9 / 12 / 13.8 / 20 V + matched A → M1–M6 (buck: V capped at input)</small></div>
+        <button class="logsbtn" id="syncPresetsBtn">Write M1–M6</button>
+      </div>
+    </div>
+
+    <div class="sec charge-only">
+      <div class="sec-title charge">⚡ Charge Profile</div>
+      <div class="field" data-obj="cfg_absorb_voltage" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Absorb voltage<small>CV target</small></div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+      <div class="field" data-obj="cfg_float_voltage" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Float voltage</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+      <div class="field" data-obj="cfg_charge_max_a" data-min="0" data-max="5" data-step="0.05" data-dec="2"><div class="name">Max charge current</div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
+      <div class="field" data-obj="cfg_absorb_taper_a" data-min="0" data-max="5" data-step="0.05" data-dec="2"><div class="name">Taper current<small>absorb → float</small></div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
+      <div class="field" data-obj="cfg_charge_done_a" data-min="0" data-max="2" data-step="0.05" data-dec="2"><div class="name">Done current<small>float → complete</small></div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
+      <div class="field" data-obj="cfg_absorb_max_sec" data-min="0" data-max="600" data-step="1" data-dec="0" data-unitconv="sec2min"><div class="name">Absorb timeout</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">min</span></div>
+      <div class="field" data-obj="cfg_charge_min_on_sec" data-min="0" data-max="3600" data-step="10" data-dec="0"><div class="name">Min on-time</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">s</span></div>
+    </div>
+
+    <div class="sec charge-only">
+      <div class="sec-title charge">🔋 Source / Vin Gate</div>
+      <div class="field" data-obj="cfg_charge_vin_start" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Start charge above</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+      <div class="field" data-obj="cfg_charge_vin_stop" data-min="0" data-max="30" data-step="0.05" data-dec="2"><div class="name">Stop charge below</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+      <div class="field" data-obj="cfg_charge_vin_max" data-min="0" data-max="40" data-step="0.05" data-dec="2"><div class="name">Overvoltage abort</div><div class="set"><button data-dir="-1">−</button><span class="v">--.--</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title thermal">⛔ Protection<small> · OVP / OCP / OPP trips</small></div>
+      <div class="field" data-obj="cfg_max_voltage" data-min="1" data-max="38.4" data-step="0.1" data-dec="2"><div class="name">Over-voltage (OVP)<small>trip above this</small></div><div class="set"><button data-dir="-1" aria-label="OVP down">−</button><span class="v" tabindex="0">--.--</span><button data-dir="1" aria-label="OVP up">+</button></div><span class="unit">V</span></div>
+      <div class="field"><div class="name" id="ovpEnLbl">OVP enabled<small>trip and cut output above the OVP limit</small></div><div class="toggle-pill prot-sw" data-sw="ovp_enable" id="ovpEnToggle" role="switch" aria-checked="false" aria-labelledby="ovpEnLbl" aria-disabled="true" tabindex="0"><div class="knob"></div></div></div>
+      <div class="field" data-obj="cfg_max_current" data-min="0.1" data-max="12" data-step="0.1" data-dec="3"><div class="name">Over-current (OCP)<small>trip above this</small></div><div class="set"><button data-dir="-1" aria-label="OCP down">−</button><span class="v" tabindex="0">-.---</span><button data-dir="1" aria-label="OCP up">+</button></div><span class="unit">A</span></div>
+      <div class="field"><div class="name" id="ocpEnLbl">OCP enabled<small>trip and cut output above the OCP limit</small></div><div class="toggle-pill prot-sw" data-sw="ocp_enable" id="ocpEnToggle" role="switch" aria-checked="false" aria-labelledby="ocpEnLbl" aria-disabled="true" tabindex="0"><div class="knob"></div></div></div>
+      <div class="field" data-obj="cfg_max_power" data-dec="1" data-ro><div class="name">Over-power (OPP)<small>read-only here · set it on the front panel</small></div><div class="set ro"><span class="v">--.-</span></div><span class="unit">W</span></div>
+      <div class="field"><div class="name" id="oppEnLbl">OPP enabled<small>trip and cut output above the OPP limit</small></div><div class="toggle-pill prot-sw" data-sw="opp_enable" id="oppEnToggle" role="switch" aria-checked="false" aria-labelledby="oppEnLbl" aria-disabled="true" tabindex="0"><div class="knob"></div></div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title disp">🐞 Debug</div>
+      <div class="field"><label class="name" for="debugToggle">Console debug logging<small>link, writes, polls + all serial bytes → browser console (F12)</small></label><input type="checkbox" id="debugToggle"></div>
+      <div class="field"><label class="name" for="traceToggle">Serial trace<small>every TX/RX byte, hex + ASCII, below</small></label><input type="checkbox" id="traceToggle"></div>
+      <div class="field"><div class="name">Trace log<small>newest at bottom</small></div>
+        <span class="btngrp"><button class="logsbtn" id="traceClear">Clear</button><button class="logsbtn" id="traceCopy">Copy</button><button class="logsbtn" id="traceSave">Save</button></span></div>
+      <pre class="tracelog" id="traceLog" tabindex="0" aria-label="Serial trace log"></pre>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title thermal">🌡️ Thermal</div>
+      <div class="field" data-obj="cfg_temp_derate_start" data-min="0" data-max="120" data-step="1" data-dec="0"><div class="name">Reduce power above<small>start throttling here</small></div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">°C</span></div>
+      <div class="field" data-obj="cfg_temp_derate_max" data-min="0" data-max="120" data-step="1" data-dec="0"><div class="name">Min power at<small>fully throttled here</small></div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">°C</span></div>
+      <div class="field" data-obj="cfg_temp_shutdown" data-min="0" data-max="150" data-step="1" data-dec="0"><div class="name">Hard shutdown</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">°C</span></div>
+      <div class="field" data-obj="cfg_temp_resume" data-min="0" data-max="120" data-step="1" data-dec="0"><div class="name">Resume below</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">°C</span></div>
+      <div class="field" data-obj="cfg_derate_floor" data-min="0" data-max="0.5" data-step="0.05" data-dec="2"><div class="name">Lowest power<small>floor when throttled</small></div><div class="set"><button data-dir="-1">−</button><span class="v">-.--</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title disp">🖥 Power &amp; Display</div>
+      <div class="field charge-only" data-obj="cfg_sleep_sec" data-min="0" data-max="3600" data-step="60" data-dec="0" data-unitconv="sec2min"><div class="name">Sleep interval<small>deep-sleep out of window</small></div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">min</span></div>
+      <div class="field" data-obj="led_brightness" data-min="0" data-max="10" data-step="1" data-dec="0"><div class="name">LED brightness</div><div class="set"><button data-dir="-1">−</button><span class="v">--</span><button data-dir="1">+</button></div><span class="unit">lvl</span></div>
+      <div class="field"><div class="name">Display test</div><div class="toggle-pill" id="displayTestToggle"><div class="knob"></div></div></div>
+      <div class="field"><div class="name">Reboot device<small>restart firmware</small></div><button class="rebootbtn" id="rebootBtn">⟳ Reboot</button></div>
+    </div>
+
+    <div class="cal" id="calSection">
+      <div class="cal-bar" id="calBar"><span>🔧 Advanced · Calibration</span><span class="chev">▸</span></div>
+      <div class="cal-body">
+        <div class="field ntc-ov"><div class="name">⚠ Buck NTC override<small>bypass cold/loose-sensor cutoff · hot-shutdown stays active</small></div><div class="toggle-pill danger" id="buckOvToggle"><div class="knob"></div></div></div>
+        <div class="field" data-obj="pwm_vcc" data-min="0" data-max="10" data-step="0.001" data-dec="3"><div class="name">PWM VCC</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+        <div class="field" data-obj="cal_iout_sense_offset" data-min="-5" data-max="5" data-step="0.001" data-dec="3"><div class="name">Isense offset</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
+        <div class="field" data-obj="cal_iout_sense_scale" data-min="0" data-max="5" data-step="0.001" data-dec="3"><div class="name">Isense scale</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+        <div class="field" data-obj="cal_iout_set_offset" data-min="-5" data-max="5" data-step="0.001" data-dec="3"><div class="name">Iset offset</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">A</span></div>
+        <div class="field" data-obj="cal_iout_set_scale" data-min="0" data-max="5" data-step="0.001" data-dec="3"><div class="name">Iset scale</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+        <div class="field" data-obj="cal_vout_sense_offset" data-min="-5" data-max="5" data-step="0.001" data-dec="3"><div class="name">Vsense offset</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+        <div class="field" data-obj="cal_vout_sense_scale" data-min="0" data-max="5" data-step="0.001" data-dec="3"><div class="name">Vsense scale</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+        <div class="field" data-obj="cal_vout_set_offset" data-min="-5" data-max="5" data-step="0.001" data-dec="3"><div class="name">Vset offset</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">V</span></div>
+        <div class="field" data-obj="cal_vout_set_scale" data-min="0" data-max="5" data-step="0.001" data-dec="3"><div class="name">Vset scale</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+        <div class="field" data-obj="cal_vin_scale" data-min="0" data-max="5" data-step="0.001" data-dec="3"><div class="name">Vin scale</div><div class="set"><button data-dir="-1">−</button><span class="v">-.---</span><button data-dir="1">+</button></div><span class="unit">×</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ESP LEFTOVER (Logs) — DISABLED =================================
+       Logs was fed off the ESPHome /events SSE "log" events. The DPS-150 uses
+       the WebSerial backend, so it never populates. Markup is commented out
+       (route kept in VIEW_PATH/PATH_VIEW for a possible future log view).
+       The sibling Entities (diagIngest) view that used to live here has been
+       replaced below by the active Charge view (Task 13) — same freed slot.
+
+  <div class="cfg" id="logs">
+    <div class="cfg-head"><h3>📜 Logs</h3><button class="done" id="logsDone">Done</button></div>
+    <div class="logwrap" id="logConsole"><span class="logempty">Waiting for log output…</span></div>
+  </div>
+  ==================================================================== -->
+
+  <!-- ===== CHARGE VIEW (programmable charging, Task 13) ===== -->
+  <div class="cfg" id="charge">
+    <div class="cfg-head"><h3>⚡ Charge</h3><button class="done" id="chargeDone">Done</button></div>
+
+    <div class="sec">
+      <div class="sec-title charge">🔋 Profile</div>
+      <div class="field"><div class="name">Chemistry</div><select id="chgChem" class="chg-select"></select></div>
+      <div class="field"><div class="name">Cells</div><input type="number" id="chgCells" class="chg-input" min="1" max="24" step="1" value="4"></div>
+      <div class="field"><div class="name">Capacity<small>Ah</small></div><input type="number" id="chgCapacity" class="chg-input" min="0.1" step="0.1" value="10"></div>
+      <div class="field"><div class="name">Charge current<small>A · dial down for a smaller supply</small></div><input type="number" id="chgChargeReq" class="chg-input" min="0.1" step="0.1" value="2"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title charge">📐 Derived</div>
+      <div class="field"><div class="name">Absorb voltage<small>CV target</small></div><span class="diagval" id="chgAbsorbV">--.-- V</span></div>
+      <div class="field"><div class="name">Float voltage</div><span class="diagval" id="chgFloatV">--.-- V</span></div>
+      <div class="field"><div class="name">Charge current<small>applied</small></div><span class="diagval" id="chgChargeA">-.-- A</span></div>
+      <div class="field"><div class="name">C-rate</div><span class="diagval" id="chgCRateOut">-.-- C</span></div>
+      <div class="field"><div class="name">Taper current<small>CV → float</small></div><span class="diagval" id="chgTaperA">-.-- A</span></div>
+      <div class="charge-msg warn" id="chgClampWarn" style="display:none;margin-top:8px;">⚠ Charge current limited by device / safety-clamp max</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title charge">▶ Control</div>
+      <div class="field">
+        <button class="logsbtn" id="chgStartBtn" disabled>▶ Start</button>
+        <button class="rebootbtn" id="chgAbortBtn" style="margin-left:8px;" disabled>■ Abort</button>
+      </div>
+      <div class="field" style="align-items:flex-start;">
+        <div class="name" style="flex:none;margin-right:8px;">Status</div>
+        <div id="chgStatusLine" style="font-family:var(--mono);font-size:12.5px;color:var(--txt);line-height:1.7;">Idle</div>
+      </div>
+      <div class="charge-msg hazard" id="chgLinkLostWarn" style="display:none;margin-top:8px;">
+        ⚠ Link lost mid-charge — STP2S output may still be LIVE (undriven, unmonitored). Verify/kill output manually.
+        <button class="diagbtn" id="chgLinkLostDismiss" style="margin-left:10px;">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- Temp probe: commented out, there is no way to hook an external probe up to the STP2S.
+         The charger runs without it (TempReader reports stale -> no packTemp).
+    <div class="sec">
+      <div class="sec-title thermal">🌡️ Temp probe<small style="text-transform:none;letter-spacing:0;color:#6e7681;"> · optional — charging runs without it</small></div>
+      <div class="field"><div class="name">Daemon port<small>path or vid:pid; empty = skip</small></div><input type="text" id="chgTempPort" class="chg-input" placeholder="serial port or USB VID:PID"></div>
+      <div class="field"><div class="name">Connection</div><button class="logsbtn" id="chgTempConnectBtn">Connect temp probe</button></div>
+      <div class="field"><div class="name">Status</div><span class="charge-msg warn" id="chgProbeStatus">not connected — temp guards off</span></div>
+    </div>
+
+    -->
+
+    <div class="sec">
+      <div class="sec-title disp">📄 Log</div>
+      <div class="field"><div class="name">Session log<small id="chgLogCount">0 samples</small></div><button class="logsbtn" id="chgCsvBtn">⬇ Download CSV</button></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- OVP/OTP trip: the PSU latches until a power cycle, so the app is blocked until a fresh read shows the flag clear. -->
+<dialog class="trip-ov" id="tripOverlay" aria-labelledby="tripTitle" aria-describedby="tripMsg">
+  <div class="ico">⚠</div>
+  <h2 id="tripTitle">OVER-VOLTAGE TRIP</h2>
+  <p id="tripMsg">The PSU cut its output and locked itself. Only a power cycle clears it.</p>
+  <ol>
+    <li>Switch the unit off with the front power switch, wait a few seconds, switch it back on.</li>
+    <li>Press Reconnect.</li>
+  </ol>
+  <button type="button" id="tripReconnect">🔌&nbsp; Reconnect</button>
+  <div class="s" id="tripStatus" role="status"></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" onclick="this.classList.remove('show')"></div>
+<script type="module" src="/backend.js"></script>
+<script type="module">
+import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob } from '/charge/profiles.js';
+import { ChargeRunner } from '/charge/runner.js';
+import { TempReader } from '/charge/temp.js';
+import { selectTransport } from '/transport/select.js';
+
+(function(){
+  "use strict";
+
+  // ---- state store: name_id -> {state, value} ----
+  var store = {};
+  var psuMode = false;           // bench_psu_mode: true=PSU, false=Charger
+  var displayTestOn = false;     // tracked so the toggle never trusts stale DOM
+  var thermalLockout = false;
+  var prevThermalLockout = false;
+  var faultShown = false;
+  var lockoutShown = false;
+  var faultTrippedTemp = null;
+
+  function fmt(n, dec){ return Number(n).toFixed(dec); }
+
+  // ---- entity name map (modern web_server URLs use the NAME, not object_id) ----
+  // Internal keys stay "domain/object_id" (used by onUpdate + HTML data-obj);
+  // NAME maps each to the entity's actual name for URLs and SSE matching.
+  var NAME = {
+    'sensor/output_voltage':'Output Voltage',
+    'sensor/output_current':'Output Current',
+    'sensor/output_power':'Output Power',
+    'sensor/input_voltage':'Input Voltage',
+    'sensor/ntc_onboard':'NTC - Onboard',
+    'sensor/ntc_buck':'NTC - Buck Temp',
+    'sensor/effective_charge_cap':'Effective Charge Cap',
+    'binary_sensor/cc_mode':'CC Mode',
+    'binary_sensor/thermal_lockout':'Thermal Lockout',
+    'text_sensor/charge_stage':'Charge Stage',
+    'text_sensor/charge_status':'Charge Status',
+    'switch/output_enable':'Output Enable',
+    'switch/bench_psu_mode':'Bench PSU Mode',
+    'switch/display_test':'Display Test',
+    'switch/buck_ntc_override':'Buck NTC Override',
+    'button/device_restart':'Device Restart',
+    'number/set_voltage':'Set Voltage',
+    'number/set_current':'Set Current',
+    'number/cfg_charge_vin_start':'Cfg Charge Vin Start',
+    'number/cfg_charge_vin_stop':'Cfg Charge Vin Stop',
+    'number/cfg_charge_vin_max':'Cfg Charge Vin Max',
+    'number/cfg_absorb_voltage':'Cfg Absorb Voltage',
+    'number/cfg_float_voltage':'Cfg Float Voltage',
+    'number/cfg_absorb_taper_a':'Cfg Absorb Taper A',
+    'number/cfg_charge_done_a':'Cfg Charge Done A',
+    'number/cfg_absorb_max_sec':'Cfg Absorb Max Sec',
+    'number/cfg_charge_max_a':'Cfg Charge Max A',
+    'number/cfg_charge_min_on_sec':'Cfg Charge Min On Sec',
+    'number/cfg_max_voltage':'Cfg Max Voltage',
+    'number/cfg_max_current':'Cfg Max Current',
+    'number/cfg_max_power':'Cfg Max Power',
+    'number/cfg_sleep_sec':'Cfg Sleep Sec',
+    'number/cfg_temp_derate_start':'Cfg Temp Derate Start',
+    'number/cfg_temp_derate_max':'Cfg Temp Derate Max',
+    'number/cfg_temp_shutdown':'Cfg Temp Shutdown',
+    'number/cfg_temp_resume':'Cfg Temp Resume',
+    'number/cfg_derate_floor':'Cfg Derate Floor',
+    'number/led_brightness':'LED Brightness',
+    'number/pwm_vcc':'PWM VCC',
+    'number/cal_iout_sense_offset':'Cal Iout Sense Offset',
+    'number/cal_iout_sense_scale':'Cal Iout Sense Scale',
+    'number/cal_iout_set_offset':'Cal Iout Set Offset',
+    'number/cal_iout_set_scale':'Cal Iout Set Scale',
+    'number/cal_vout_sense_offset':'Cal Vout Sense Offset',
+    'number/cal_vout_sense_scale':'Cal Vout Sense Scale',
+    'number/cal_vout_set_offset':'Cal Vout Set Offset',
+    'number/cal_vout_set_scale':'Cal Vout Set Scale',
+    'number/cal_vin_scale':'Cal Vin Scale'
+  };
+  // reverse: SSE "name_id" (domain/Name) -> internal key; plus a key set.
+  var NAMEID2KEY = {}, KEYS = {};
+  Object.keys(NAME).forEach(function(key){
+    KEYS[key] = true;
+    var domain = key.slice(0, key.indexOf('/'));
+    NAMEID2KEY[domain + '/' + NAME[key]] = key;
+  });
+
+  // Resolve a state event to our internal "domain/object_id" key. Robust across
+  // web_server versions: current name_id (domain/Name), current legacy id
+  // (domain-object_id), and the 2026.8.0 flip where id becomes name-format.
+  function resolveKey(data){
+    if(!data) return null;
+    if(data.name_id && NAMEID2KEY[data.name_id]) return NAMEID2KEY[data.name_id];
+    if(data.id){
+      if(NAMEID2KEY[data.id]) return NAMEID2KEY[data.id];       // future name-format id
+      var legacy = data.id.replace('-', '/');                    // domain-object_id -> domain/object_id
+      if(KEYS[legacy]) return legacy;
+    }
+    return null;
+  }
+
+  // Modern URL path for an entity: /domain/EncodedName (falls back to object_id).
+  function urlPath(domain, obj){
+    var nm = NAME[domain + '/' + obj];
+    return '/' + domain + '/' + encodeURIComponent(nm || obj);
+  }
+
+  function post(domain, obj, action, value){
+    if(domain === 'number' && action === 'set') expectWrite(obj, value);
+    if(window.DPSBackend) window.DPSBackend.post(domain, obj, action, value);
+  }
+
+  // ---- debounced number writes ----
+  // Steppers update the DOM instantly on every press; the actual REST write is
+  // coalesced to fire once ~400ms after the user stops (hold-repeat runs at
+  // 120ms, so a full button-hold collapses to a single POST). While a write is
+  // pending or awaiting device confirmation, incoming SSE echoes for that entity
+  // are stale and get ignored (see staleEcho) so the readout never flickers back.
+  var POST_DEBOUNCE = 350;  // settle: write this long after the last change
+  var POST_MAXWAIT  = 250;  // but never sit on a pending change longer than this
+  var _postTimers = {}, _postVals = {}, _postFirst = {};
+  function debouncedPost(domain, obj, value){
+    var k = domain + '/' + obj;
+    _postVals[k] = value;
+    var now = Date.now();
+    if(_postFirst[k] === undefined) _postFirst[k] = now;
+    if(_postTimers[k]) clearTimeout(_postTimers[k]);
+    // Trailing debounce, capped by maxWait: a continuous hold flushes every
+    // ~250ms (output ramps in steps instead of one jump on release), while a
+    // quick tap still coalesces to a single settle write ~350ms later.
+    var wait = Math.min(POST_DEBOUNCE, Math.max(0, POST_MAXWAIT - (now - _postFirst[k])));
+    _postTimers[k] = setTimeout(function(){
+      _postTimers[k] = null;
+      _postFirst[k] = undefined;
+      post(domain, obj, 'set', _postVals[k]);
+    }, wait);
+  }
+  function cancelPost(domain, obj){
+    var k = domain + '/' + obj;
+    if(_postTimers[k]){ clearTimeout(_postTimers[k]); _postTimers[k] = null; }
+    _postFirst[k] = undefined;
+  }
+
+  // ---- optimistic write latch ----
+  // After we send a number write, the device keeps echoing its OLD setpoint for
+  // ~1 full-sync cycle + serial latency (and ramps through intermediate values on
+  // a downward change). Those stale echoes would flip the readout back and forth.
+  // So once we've committed a value, the UI leads as authority: ignore every echo
+  // for that entity until one MATCHES our commanded value (device confirmed) or a
+  // grace window lapses (give up, device wins).
+  var EXPECT_GRACE = 2500;  // ms to trust our own write before yielding to device
+  var _expect = {};
+  function expectWrite(obj, value){
+    _expect['number/' + obj] = { v: +value, until: Date.now() + EXPECT_GRACE };
+  }
+  // True if this incoming echo is stale and must be ignored.
+  function staleEcho(obj, value){
+    var k = 'number/' + obj;
+    if(_postTimers[k]) return true;                  // mid-adjust: write still queued
+    var e = _expect[k];
+    if(!e) return false;                             // no pending write: accept
+    if(Date.now() >= e.until){ delete _expect[k]; return false; }   // grace lapsed
+    if(Math.abs(+value - e.v) < 0.0005){ delete _expect[k]; return false; } // confirmed (A has 3 decimals)
+    return true;                                     // mismatch within grace: ignore
+  }
+
+  // ================= inline sparklines =================
+  // Ring buffer per readout, fed straight off the SSE stream. Rendered as a
+  // stretch-to-fit SVG polyline (viewBox 0..100, non-scaling stroke). Hovering a
+  // spark PAUSES its redraw and shows a crosshair + value/age for the sample
+  // under the cursor; leaving resumes and catches up. No external lib.
+  var SPARK_MAX = 600;                              // samples kept (~few min)
+  // Minimum vertical window per metric: floors the auto-scale so small noise
+  // stays visually small instead of being zoomed to fill the whole height.
+  var SPARK_MINSPAN = { v:1.0, a:0.3, w:1.0 };
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var hist = { v:[], a:[], w:[] };
+  var sparkPaused = { v:false, a:false, w:false };
+  var outputOn = false;   // freeze the face graphs while output is off
+  var spark = {};                                   // metric -> {host,poly,dot,vline,tip,lo,span}
+
+  function initSpark(metric){
+    var host = el('spark' + metric.toUpperCase());
+    if(!host) return;
+    var svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    var poly = document.createElementNS(SVGNS, 'polyline');
+    poly.setAttribute('vector-effect', 'non-scaling-stroke');
+    poly.setAttribute('stroke-width', '2');
+    poly.style.fill = 'none';
+    poly.style.stroke = 'var(--' + metric + ')';
+    poly.style.opacity = '0.6';
+    var dot = document.createElementNS(SVGNS, 'circle');
+    dot.setAttribute('r', '3'); dot.style.fill = 'var(--' + metric + ')'; dot.style.display = 'none';
+    var vline = document.createElementNS(SVGNS, 'line');
+    vline.setAttribute('y1', '0'); vline.setAttribute('y2', '100');
+    vline.setAttribute('vector-effect', 'non-scaling-stroke');
+    vline.style.stroke = '#ffffff55'; vline.style.display = 'none';
+    svg.appendChild(poly); svg.appendChild(vline); svg.appendChild(dot);
+    host.appendChild(svg);
+    var tip = document.createElement('div'); tip.className = 'spark-tip'; host.appendChild(tip);
+    spark[metric] = { host:host, poly:poly, dot:dot, vline:vline, tip:tip, lo:0, span:1 };
+    host.addEventListener('mouseenter', function(){ sparkPaused[metric] = true; });
+    host.addEventListener('mouseleave', function(){ sparkPaused[metric] = false; sparkCursor(metric, null); drawSpark(metric); });
+    host.addEventListener('mousemove', function(e){ sparkHover(metric, e); });
+  }
+
+  function pushHist(metric, val){
+    var h = hist[metric]; if(!h) return;
+    if(!outputOn) return;   // output off -> freeze: keep the last active trace, stop appending
+    h.push({ t:Date.now(), v:Number(val) });
+    if(h.length > SPARK_MAX) h.shift();
+    if(!sparkPaused[metric]) drawSpark(metric);
+  }
+
+  function drawSpark(metric){
+    var s = spark[metric]; if(!s) return;
+    var h = hist[metric], n = h.length;
+    if(n < 2){ s.poly.setAttribute('points', ''); return; }
+    var lo = Infinity, hi = -Infinity, i;
+    for(i = 0; i < n; i++){ var v = h[i].v; if(v < lo) lo = v; if(v > hi) hi = v; }
+    var span = (hi - lo) * 1.24;                    // data range + 12% pad each side
+    var floor = SPARK_MINSPAN[metric] || 0;
+    if(span < floor) span = floor;                  // don't zoom into micro-noise
+    if(span <= 0) span = 1;
+    var mid = (lo + hi) / 2;                         // center the trace in the window
+    lo = mid - span / 2; hi = mid + span / 2;
+    var pts = '';
+    for(i = 0; i < n; i++){
+      var x = (i / (n - 1)) * 100;
+      var y = 100 - ((h[i].v - lo) / span) * 100;
+      pts += x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+    }
+    s.poly.setAttribute('points', pts);
+    s.lo = lo; s.span = span;
+  }
+
+  function sparkHover(metric, e){
+    var s = spark[metric], h = hist[metric];
+    if(!s || h.length < 2) return;
+    var rect = s.host.getBoundingClientRect();
+    var frac = (e.clientX - rect.left) / rect.width;
+    frac = Math.max(0, Math.min(1, frac));
+    var idx = Math.round(frac * (h.length - 1));
+    var samp = h[idx];
+    var x = (idx / (h.length - 1)) * 100;
+    var y = 100 - ((samp.v - s.lo) / s.span) * 100;
+    s.dot.setAttribute('cx', x); s.dot.setAttribute('cy', y); s.dot.style.display = '';
+    s.vline.setAttribute('x1', x); s.vline.setAttribute('x2', x); s.vline.style.display = '';
+    var ago = Math.round((Date.now() - samp.t) / 1000);
+    s.tip.textContent = samp.v.toFixed(metric === 'a' ? 3 : 2) + ' ' + metric.toUpperCase() + ' · ' + (ago <= 0 ? 'now' : ago + 's ago');
+    s.tip.style.left = (frac * rect.width) + 'px';
+    s.tip.style.display = '';
+  }
+
+  function sparkCursor(metric){
+    var s = spark[metric]; if(!s) return;
+    s.dot.style.display = 'none'; s.vline.style.display = 'none'; s.tip.style.display = 'none';
+  }
+
+  // ================= dynamic diagnostics =================
+  // Renders EVERY entity from the /events stream (independent of the styled UI's
+  // NAME map), grouped by domain, live-updated. name_id is "domain/Name"; the
+  // legacy id "domain-object_id" is the fallback. state is the device's own
+  // formatted string (e.g. "12.34 V") — exactly what the stock page shows.
+  var diagStore = {};   // key -> {valEl, on, mg, hist}
+  // Group by entity_category (0=none, 1=config, 2=diagnostic) so diagnostic
+  // entities sort below the primary sensors/controls and the config group.
+  var CAT_META = { 0:{k:'primary', t:'Sensors & Controls'}, 1:{k:'config', t:'Configuration'}, 2:{k:'diagnostic', t:'Diagnostic'} };
+  function diagParse(data){
+    if(data.name_id){ var i = data.name_id.indexOf('/'); if(i > 0) return {key:data.name_id, domain:data.name_id.slice(0,i), name:data.name_id.slice(i+1)}; }
+    if(data.id){ var j = data.id.indexOf('-'); if(j > 0) return {key:data.id, domain:data.id.slice(0,j), name:data.id.slice(j+1)}; }
+    return null;
+  }
+  function diagVal(data){
+    if(typeof data.state === 'string' && data.state.length) return data.state;
+    if(data.value !== undefined && data.value !== null) return String(data.value);
+    return '—';
+  }
+  function diagSection(cat){
+    var meta = CAT_META[cat] || CAT_META[0];
+    var id = 'diagcat-' + meta.k, sec = el(id);
+    if(sec) return sec;
+    sec = document.createElement('div'); sec.className = 'sec'; sec.id = id;
+    sec.setAttribute('data-order', cat);
+    var t = document.createElement('div'); t.className = 'sec-title diag'; t.textContent = meta.t;
+    sec.appendChild(t);
+    var list = el('diagList'), kids = list.children, placed = false;
+    for(var k = 0; k < kids.length; k++){
+      if(parseInt(kids[k].getAttribute('data-order'), 10) > cat){ list.insertBefore(sec, kids[k]); placed = true; break; }
+    }
+    if(!placed) list.appendChild(sec);
+    return sec;
+  }
+  function diagIngest(data){
+    var p = diagParse(data); if(!p) return;
+    var entry = diagStore[p.key];
+    if(!entry){
+      // entity_category only present on state_detail_all (connect snapshot);
+      // default to primary (0) for anything first seen via a bare state event.
+      var cat = (data.entity_category === 1 || data.entity_category === 2) ? data.entity_category : 0;
+      var sec = diagSection(cat);
+      var row = document.createElement('div'); row.className = 'field';
+      var nm = document.createElement('div'); nm.className = 'name'; nm.textContent = p.name; row.appendChild(nm);
+      // numeric sensors get an inline history minigraph (like the stock esp-app)
+      var mg = null;
+      if(p.domain === 'sensor' && isFinite(parseFloat(data.value))) mg = makeDiagSpark(row);
+      var val = document.createElement('span'); val.className = 'diagval'; row.appendChild(val);
+      if(p.domain === 'switch'){
+        var tgl = document.createElement('button'); tgl.className = 'diagbtn'; tgl.textContent = 'Toggle';
+        tgl.addEventListener('click', function(){ postName('switch', p.name, diagStore[p.key].on ? 'turn_off' : 'turn_on'); });
+        row.appendChild(tgl);
+      } else if(p.domain === 'button'){
+        var pb = document.createElement('button'); pb.className = 'diagbtn'; pb.textContent = 'Press';
+        pb.addEventListener('click', function(){ postName('button', p.name, 'press'); });
+        row.appendChild(pb);
+      }
+      sec.appendChild(row);
+      entry = diagStore[p.key] = {valEl:val, on:false, mg:mg, hist:[]};
+    }
+    entry.valEl.textContent = diagVal(data);
+    entry.on = !!data.value;
+    // boolean-state entities go green when ON (switch/binary/light/etc.)
+    if(/^(switch|binary_sensor|light|fan|lock|cover|valve)$/.test(p.domain)){
+      entry.valEl.classList.toggle('on', entry.on);
+    }
+    if(entry.mg){
+      var num = parseFloat(data.value);
+      if(isFinite(num)) diagSparkPush(entry, num);
+    }
+  }
+
+  // ---- diagnostics minigraph: compact auto-scaling sparkline per numeric sensor ----
+  function makeDiagSpark(row){
+    var host = document.createElement('span'); host.className = 'diagspark';
+    var svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100'); svg.setAttribute('preserveAspectRatio', 'none');
+    var poly = document.createElementNS(SVGNS, 'polyline');
+    poly.setAttribute('vector-effect', 'non-scaling-stroke'); poly.setAttribute('stroke-width', '1.5');
+    poly.style.fill = 'none'; poly.style.stroke = '#5fb0c9'; poly.style.opacity = '0.8';
+    svg.appendChild(poly); host.appendChild(svg); row.appendChild(host);
+    return { poly:poly };
+  }
+  function diagSparkPush(entry, val){
+    var h = entry.hist; h.push(val);
+    if(h.length > 60) h.shift();               // shorter buffer than the face graphs
+    var n = h.length; if(n < 2){ entry.mg.poly.setAttribute('points', ''); return; }
+    var lo = Infinity, hi = -Infinity, i;
+    for(i = 0; i < n; i++){ if(h[i] < lo) lo = h[i]; if(h[i] > hi) hi = h[i]; }
+    var span = (hi - lo) * 1.2 || 1, mid = (lo + hi) / 2; lo = mid - span / 2;
+    var pts = '';
+    for(i = 0; i < n; i++){ pts += ((i / (n - 1)) * 100).toFixed(1) + ',' + (100 - ((h[i] - lo) / span) * 100).toFixed(1) + ' '; }
+    entry.mg.poly.setAttribute('points', pts);
+  }
+  // POST by entity NAME (diagnostics has the name_id, not our internal object_id).
+  function postName(domain, name, action){
+    fetch('/' + domain + '/' + encodeURIComponent(name) + '/' + action, {method:'POST', credentials:'same-origin'}).catch(function(){});
+  }
+
+  // ================= log console =================
+  // web_server streams every log line over /events as a "log" event (raw text
+  // with ANSI color codes). Strip the escapes, colorize by the [X] level tag,
+  // keep a bounded ring, and auto-stick to the bottom unless the user scrolled up.
+  var LOG_MAX = 500, _logStick = true, _logStarted = false;
+  function stripAnsi(s){ return s.replace(/\x1b\[[0-9;]*m/g, ''); }
+  function onLog(raw){
+    if(raw == null) return;
+    var box = el('logConsole'); if(!box) return;
+    if(!_logStarted){ box.innerHTML = ''; _logStarted = true; }   // clear placeholder
+    var line = stripAnsi(String(raw)).replace(/\s+$/, '');
+    if(!line) return;
+    var div = document.createElement('div'); div.className = 'logline';
+    var m = line.match(/^\[([A-Z]{1,2})\]/);
+    if(m) div.className += ' l-' + m[1];
+    div.textContent = line;
+    box.appendChild(div);
+    while(box.childNodes.length > LOG_MAX) box.removeChild(box.firstChild);
+    if(_logStick) box.scrollTop = box.scrollHeight;
+  }
+
+  // ================= SSE =================
+  // The browser only auto-reconnects an EventSource while it stays in the
+  // CONNECTING state. During a flash/reboot the device can answer with a partial
+  // or non-2xx response, which drops the stream to CLOSED — and CLOSED never
+  // retries on its own. So we watch readyState: let the browser handle transient
+  // CONNECTING blips, and take over with a capped-backoff reconnect on CLOSED.
+  var _es = null, _retry = 0, _reconnTimer = null;
+  var RECONN_MAX = 15000;   // backoff ceiling — never hammer faster than this floor step
+
+  // --- disconnect modal + auto-reconnect ---------------------------------
+  // Once a link has been live, an UNEXPECTED drop pops the connect overlay in a
+  // "reconnecting" state and retries on a capped backoff. Daemon mode reconnects
+  // with no gesture (setLink(true) then hides the modal); WebSerial needs a
+  // click, so the Connect button stays live as the manual finish. A user-initiated
+  // eject sets _userEject so it shows the normal connect card without auto-retry.
+  var _everLinked = false, _userEject = false, _reconnTimer2 = null, _reconnTries = 0;
+  var _serverStopped = false;   // daemon powered off via the button — don't auto-reconnect
+  function _clearReconn(){ if(_reconnTimer2){ clearTimeout(_reconnTimer2); _reconnTimer2 = null; } }
+  function _scheduleReconnect2(){
+    if(_reconnTimer2) return;                                  // one pending attempt
+    var delay = Math.min(15000, 1000 * Math.pow(2, _reconnTries));  // 1,2,4,8,15…
+    _reconnTries++;
+    _reconnTimer2 = setTimeout(_tryReconnect, delay);
+  }
+  function _tryReconnect(){
+    _reconnTimer2 = null;
+    var B = window.DPSBackend;
+    if(!B || B.isConnected()) return;
+    B.connect({ auto:true }).then(function(res){
+      // Daemon success fires setLink(true) → modal hides; refresh the topbar
+      // icon (⏏/🔌) too. Auto skipped (WebSerial needs a click) → keep the loop
+      // alive; the Connect button is the manual out.
+      if(!res || res.skipped) _scheduleReconnect2();
+      else refreshConnUI();
+    }).catch(function(){ _scheduleReconnect2(); });
+  }
+  function showLostModal(){
+    // Port still open = controller keeps polling and the modal clears itself when the
+    // PSU answers again. Port closed (USB pulled) = WebSerial needs a Reconnect click.
+    var B = window.DPSBackend, open = !!(B && B.isConnected());
+    el('connectTitle').textContent = open ? 'PSU not answering' : 'Connection lost';
+    el('connectSub').textContent = open
+      ? 'Port open, still polling · check the unit is powered and on the COM port'
+      : 'Reconnecting… · if USB was unplugged, replug and press Reconnect now';
+    var ic = el('connectIcon'); ic.textContent = '🔁'; ic.className = 'cicon spin';
+    el('connectGo').innerHTML = '🔌&nbsp; Reconnect now';
+    el('connectOverlay').classList.add('show','lost');
+    desktopModal();
+  }
+  function restoreConnectModal(){
+    el('connectTitle').textContent = 'Connect STP2S';
+    el('connectSub').textContent = 'Not connected';
+    var ic = el('connectIcon'); ic.textContent = '🔌'; ic.className = 'cicon pulse';
+    el('connectGo').innerHTML = '🔌&nbsp; Connect';
+    el('connectOverlay').classList.remove('lost');
+  }
+
+  var _chgWasLive = false;
+  function setLink(live){
+    var d = el('linkDot'); if(!d) return;
+    d.classList.toggle('off', !live);
+    d.title = live ? 'Link OK' : 'No link'; d.setAttribute('aria-label', d.title);
+    document.querySelectorAll('.prot-sw').forEach(function(t){ t.setAttribute('aria-disabled', live ? 'false' : 'true'); });
+    // Modal: hide on (re)connect; on an unexpected drop show the reconnecting
+    // overlay and start the retry loop. A user eject skips both (normal card).
+    if(live){
+      _everLinked = true; _reconnTries = 0; _clearReconn();
+      restoreConnectModal();
+      el('connectOverlay').classList.remove('show');
+    } else if(_serverStopped){
+      _clearReconn();                         // server is gone — no point retrying
+      el('connectOverlay').classList.remove('show');
+    } else if(_userEject){
+      _userEject = false; _clearReconn(); restoreConnectModal();  // refreshConnUI shows the card
+    } else if(_everLinked){
+      showLostModal();
+      _scheduleReconnect2();
+    }
+    // Link dropped mid-charge: this resets OUR local runner state back to
+    // IDLE, but it does NOT command the DPS-150's output off. By the time
+    // setLink(false) fires here, DPSBackend has already detached (dps = null
+    // in backend.js's transport.onStatus handler) — so chgApply()'s post()
+    // calls are silent no-ops (DPSBackend.post() returns early when !dps).
+    // A bench supply keeps sourcing at its last commanded setpoint
+    // independent of the USB link, so the real output may still be LIVE and
+    // now completely unmonitored. Surface that loudly instead of implying
+    // it's handled — see chgShowLinkLostWarning().
+    if(!live && _chgWasLive && chgIsRunning()){
+      chargeRunner.abort();
+      updateChgButtons();
+      chgShowLinkLostWarning();
+    }
+    _chgWasLive = live;
+    updateChgStartEnabled();
+  }
+
+  function scheduleReconnect(){
+    setLink(false);
+    if(_es){ try{ _es.close(); }catch(e){} _es = null; }
+    if(_reconnTimer) return;                 // one pending attempt at a time
+    var delay = Math.min(RECONN_MAX, 1000 * Math.pow(2, _retry));  // 1,2,4,8,15…
+    _retry++;
+    _reconnTimer = setTimeout(function(){ _reconnTimer = null; connect(); }, delay);
+  }
+
+  function connect(){
+    // WebSerial backend module loads deferred — poll until it registers.
+    if(!window.DPSBackend){ setTimeout(connect, 60); return; }
+    window.DPSBackend.attach({ onUpdate: onUpdate, setLink: setLink, setMode: setMode, toast: toast });
+    setLink(false);
+  }
+
+  // No per-entity REST prime needed: web_server's /events SSE iterates every
+  // entity and pushes its current state on connect (see on_client_connect_ ->
+  // entities_iterator_.begin). One connection replaces ~40 GETs.
+
+  // ================= dispatch =================
+  function onUpdate(name_id, data){
+    switch(name_id){
+      case 'sensor/output_voltage': chgLastV = data.value; digV(data.value); chgOnTelemetry(); return;
+      case 'sensor/output_current': chgLastI = data.value; digA(data.value); chgOnTelemetry(); return;
+      case 'sensor/output_power': digW(data.value); return;
+      case 'sensor/aux_voltage': uinReadout(data.value); return;   // STP2S APS reg: display only, kept out of the charger's Vin
+      case 'sensor/input_voltage': chgLastVin = data.value; uinReadout(data.value); chgOnTelemetry(); return;
+      case 'sensor/ntc_onboard': tempReadout(data.value); return;
+      case 'sensor/ntc_buck': buckReadout(data.value); return;
+      case 'sensor/effective_charge_cap': return; // reserved for future use
+      case 'binary_sensor/cc_mode': chgLastCC = data.value ? 'CC' : 'CV'; ccMode(!!data.value); return;
+      case 'binary_sensor/thermal_lockout': setThermalLockout(!!data.value); return;
+      case 'text_sensor/charge_stage': chargeStage(data.state); return;
+      case 'text_sensor/charge_status': chargeMsg(data.state); return;
+      case 'switch/output_enable': outputEnable(!!data.value); return;
+      case 'switch/bench_psu_mode': setMode(!!data.value); return;
+      case 'switch/display_test': displayTest(!!data.value); return;
+      case 'switch/buck_ntc_override': buckOverride(!!data.value); return;
+      case 'binary_sensor/ovp_trip': case 'binary_sensor/ocp_trip': case 'binary_sensor/opp_trip': case 'binary_sensor/otp_trip':
+        var tk = name_id.split('/')[1].split('_')[0];
+        protPill(tk, 'trip', data.value);
+        if(tk === 'ovp' || tk === 'otp') hardTrip(tk, data.value);
+        return;
+      case 'switch/ovp_enable': case 'switch/ocp_enable': case 'switch/opp_enable': protSwitch(name_id.split('/')[1], !!data.value); return;
+      case 'number/set_voltage': if(staleEcho('set_voltage', data.value)) return; setStepperVal('set_voltage', data.value); setrowV(data.value); return;
+      case 'number/set_current': if(staleEcho('set_current', data.value)) return; setStepperVal('set_current', data.value); setrowA(data.value); return;
+      default:
+        if(name_id.indexOf('number/') === 0){
+          setCfgFieldVal(name_id.slice(7), data.value);
+          var lim = PROT_LIMIT[name_id.slice(7)];
+          if(lim) protPill(lim[0], 'lim', fmt(data.value, lim[1]) + ' ' + lim[2]);
+        }
+    }
+  }
+
+  // ---- face digit helpers ----
+  var derateStart = null, shutdownTemp = null, resumeTemp = null;
+  function digV(v){ el('digV').textContent = fmt(v,2); pushHist('v', v); }
+  function digA(v){ el('digA').textContent = fmt(v,3); pushHist('a', v); }
+  function digW(v){ el('digW').textContent = fmt(v,2); pushHist('w', v); }
+  function setrowV(v){ el('setrowV').textContent = fmt(v,2) + ' V'; }
+  function setrowA(v){ el('setrowA').textContent = fmt(v,3) + ' A'; }
+  function uinReadout(v){ el('uinReadout').textContent = 'U-IN ' + fmt(v,1) + ' V ·'; }
+  // STP2S internal temp (reg 0x0003, °C); also feeds the OTP pill tooltip.
+  function tempReadout(v){
+    el('tempReadout').textContent = 'TEMP ' + fmt(v,0) + '°C';
+    protPill('otp', 'lim', fmt(v,0) + '°C');
+  }
+  // External temp probe (our sensor) — reuses the old D3806 "buck" readout slot in
+  // the status bar. The DPS has no buck NTC, so nothing else drives this element.
+  // Fed from tempReader on each probe line; blanks when stale/disconnected.
+  function probeReadout(){
+    var t = el('buckReadout'); if(!t) return;   // probe readout commented out in markup
+    var v = tempReader.latest('pack');
+    var stale = tempReader.isStale('pack', performance.now());
+    t.className = 'in';
+    t.textContent = (v == null || stale) ? '· probe --°C' : '· probe ' + fmt(v,0) + '°C';
+  }
+  // Buck-tab NTC — the actual derate/shutdown source, so it carries the hazard
+  // highlight and the client-side fault-card trip (mirrors the server threshold).
+  function buckReadout(v){
+    var hot = derateStart !== null && v >= derateStart;
+    var t = el('buckReadout'); if(!t) return;   // readout commented out in markup
+    t.textContent = '· buck ' + fmt(v,0) + '°C';
+    t.className = hot ? 'in hazard' : 'in';
+    if(shutdownTemp !== null && v >= shutdownTemp && !faultShown && !lockoutShown){
+      tripFault(v);
+    }
+  }
+  function ccMode(isCC){
+    var cv = el('cvcvBadge'), cc = el('cccvBadge');
+    if(isCC){
+      cc.textContent = 'CC'; cc.className = 'cc cc-on';
+      cv.style.display = 'none';
+    } else {
+      cc.className = 'cc cc-off';
+      cv.style.display = '';
+      cv.textContent = 'CV';
+    }
+  }
+  function chargeStage(stateStr){
+    var badge = el('stageBadge');
+    if(psuMode){ badge.style.display = 'none'; return; }
+    badge.style.display = '';
+    badge.textContent = stateStr || 'Idle';
+  }
+
+  // Charger status. Complete -> green banner. Faults -> the shared red dismissible
+  // fault card (same UI as the NTC/overtemp trip). Overtemp/NTC strings are left
+  // to the thermal path (it owns the lockout overlay). Normal charging/float is
+  // quiet — the stage badge covers it.
+  function chargeMsg(s){
+    var banner = el('chargeMsg');
+    s = (s || '').trim();
+    var quiet = !s || /^Charging/i.test(s) || /^Float$/i.test(s);
+    if(quiet){
+      banner.style.display = 'none';
+      if(faultSource === 'charge') clearAllOverlays();   // charging resumed -> drop the card
+      return;
+    }
+    if(/complete/i.test(s)){
+      banner.textContent = '✓ ' + s;
+      banner.className = 'charge-msg charger-only done';
+      banner.style.display = '';
+      if(faultSource === 'charge') clearAllOverlays();
+      return;
+    }
+    banner.style.display = 'none';
+    if(/temp|ntc|cooling/i.test(s)) return;   // thermal path owns these
+    var title = /no load|open/i.test(s) ? '⚠ NO LOAD'
+              : /overcurrent/i.test(s)  ? '⚠ OVERCURRENT'
+              : /source/i.test(s)       ? '⚠ SOURCE OUT OF WINDOW'
+              : '⚠ CHARGE FAULT';
+    showFault(title, '<b>' + s + '</b><br>Output was shut off. Correct the condition, then dismiss to resume.', 'charge', ' · charger');
+  }
+
+  function outputEnable(on){
+    outputOn = !!on;   // gates pushHist so the graphs freeze the moment output drops
+    var b = el('outputBtn');
+    b.textContent = 'OUTPUT  ' + (on ? 'ON' : 'OFF');
+    b.className = 'onoff ' + (on ? 'on' : 'off');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
+  function setMode(isPsu){
+    psuMode = isPsu;
+    // Buttons label the TARGET mode ("switch to X"), not the current one.
+    el('modeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
+    el('modeTag').textContent = '⚡ Charger'; el('modeTag').style.display = isPsu ? 'none' : '';   // PSU is the default; only flag charger mode
+    el('titleMode').textContent = isPsu ? '' : '· CHARGER MODE';
+    el('stageBadge').style.display = isPsu ? 'none' : '';
+    // Face control-swap: charger -> profile card, PSU -> voltage presets.
+    if(isPsu) el('psu').classList.remove('is-charger'); else el('psu').classList.add('is-charger');
+    var cfg = el('cfg');
+    if(isPsu) cfg.classList.add('is-psu'); else cfg.classList.remove('is-psu');
+    el('modeLbl').innerHTML = isPsu
+      ? '🔌 PSU Mode<small>manual supply · charge logic off</small>'
+      : '⚡ Charger Mode<small>full charge state machine active</small>';
+    el('cfgModeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
+  }
+
+  function displayTest(on){
+    displayTestOn = !!on;
+    var t = el('displayTestToggle');
+    if(on) t.classList.add('on'); else t.classList.remove('on');
+  }
+
+  // OVP/OCP/OPP switches (regs 0x0042-44). Pills only follow the device echo, never flip optimistically.
+  function protSwitch(obj, on){
+    var t = document.querySelector('.prot-sw[data-sw="' + obj + '"]');
+    if(t){ t.classList.toggle('on', on); t.setAttribute('aria-checked', on ? 'true' : 'false'); }
+    protPill(obj.split('_')[0], 'en', on);
+  }
+  // Face pills: dim = protection off, lit = armed, red/blinking = tripped (PS reg 0x0002 bits 2-4).
+  // OVP/OTP latch on the device until a power cycle (manual §11; OVP confirmed on the bench).
+  // Block the whole app with a modal <dialog>; it only closes when a fresh read shows the flag clear.
+  var _hardTrip = { ovp:false, otp:false };
+  function hardTrip(k, v){
+    _hardTrip[k] = !!v;
+    var d = el('tripOverlay'), on = _hardTrip.ovp || _hardTrip.otp;
+    if(on){
+      el('tripTitle').textContent = _hardTrip.ovp ? 'OVER-VOLTAGE TRIP (OVP)' : 'OVER-TEMPERATURE TRIP (OTP)';
+      if(!d.open){ el('tripStatus').textContent = ''; d.showModal(); el('tripReconnect').focus(); }
+    } else if(d.open){ d.close(); }
+  }
+  // Esc must not dismiss it. Chrome only honours preventDefault on 'cancel' after a user gesture,
+  // so also reopen on 'close' while the flag is still set.
+  el('tripOverlay').addEventListener('cancel', function(e){ e.preventDefault(); });
+  el('tripOverlay').addEventListener('close', function(){ if(_hardTrip.ovp || _hardTrip.otp) el('tripOverlay').showModal(); });
+  el('tripReconnect').addEventListener('click', function(){
+    var B = window.DPSBackend, s = el('tripStatus');
+    s.textContent = 'Reconnecting…';
+    var pre = B.isConnected() ? B.disconnect() : Promise.resolve();
+    pre.then(function(){ return B.connect({ auto:true }); })                  // granted port, no picker
+      .then(function(res){ return (res && res.skipped) ? B.connect() : res; })  // never granted: picker
+      .then(function(){
+        refreshConnUI();
+        s.textContent = 'Connected · reading status…';
+        setTimeout(function(){ if(el('tripOverlay').open) s.textContent = 'Still tripped. Power-cycle the unit, then Reconnect.'; }, 2500);
+      })
+      .catch(function(e){ s.textContent = 'Reconnect failed: ' + ((e && e.message) || e) + ' · is the unit switched on?'; });
+  });
+
+  // Hover shows state + setpoint instantly (CSS tooltip from data-tip; native title has a ~1 s delay).
+  // OTP has no enable switch (always armed) and no known threshold (fixed in firmware; the TEMP menu only toggles the display). Tip shows live TEMP.
+  var _prot = { ovp:{}, ocp:{}, opp:{}, otp:{ en:true } };
+  var PROT_LIMIT = { cfg_max_voltage:['ovp',2,'V'], cfg_max_current:['ocp',3,'A'], cfg_max_power:['opp',1,'W'] };
+  function protPill(k, field, v){
+    var st = _prot[k]; if(!st) return;
+    st[field] = field === 'lim' ? v : !!v;
+    var p = document.querySelector('.pp[data-k="' + k + '"]'), K = k.toUpperCase();
+    p.className = 'pp' + (st.trip ? ' trip' : st.en ? ' on' : '');
+    var tip = K + (st.trip ? ' TRIPPED' : st.en ? ' armed' : ' off') +
+      (k === 'otp' ? ' · TEMP ' + (st.lim || '--°C') + ' · fixed threshold (unknown)' : ' · limit ' + (st.lim || '--')) +
+      (st.trip && (k === 'ovp' || k === 'otp') ? ' · power-cycle the unit to clear' : '');
+    p.setAttribute('data-tip', tip);
+    p.setAttribute('aria-label', tip);
+  }
+
+  // Buck NTC override: bypasses the cold/loose-sensor cutoff on the device.
+  // Persists across reboot, so surface a face-view badge whenever it's on —
+  // a silently-left-on bypass must never be invisible.
+  var buckOverrideOn = false;
+  function buckOverride(on){
+    buckOverrideOn = !!on;
+    var t = el('buckOvToggle');
+    if(on) t.classList.add('on'); else t.classList.remove('on');
+    el('buckOvBadge').style.display = on ? '' : 'none';
+  }
+
+  // ---- fault / lockout state machine ----
+  function setThermalLockout(v){
+    prevThermalLockout = thermalLockout;
+    thermalLockout = v;
+    if(v && !prevThermalLockout && !faultShown){
+      // rising edge -> just tripped
+      tripFault(null);
+    }
+    if(!v){
+      // condition resolved: clear both fault card + lockout overlay automatically
+      if(lockoutShown || faultShown) clearAllOverlays();
+    } else if(lockoutShown){
+      // still locked out, keep overlay in sync (subtext uses resumeTemp)
+      updateLockoutSub();
+    }
+  }
+
+  // Shared red fault-card presenter. source: 'thermal' | 'charge'.
+  var faultSource = null;
+  function showFault(title, msgHtml, source, whenSuffix){
+    faultShown = true;
+    lockoutShown = false;
+    faultSource = source || 'thermal';
+    el('psu').classList.add('show-fault','is-locked');
+    el('psu').classList.remove('show-lockout');
+    el('faultTitle').textContent = title;
+    var when = new Date().toISOString().replace('T',' ').substring(0,19);
+    el('faultWhen').textContent = when + (whenSuffix || '');
+    el('faultMsg').innerHTML = msgHtml;
+  }
+
+  function tripFault(temp){
+    faultTrippedTemp = temp;
+    var tempStr = (temp !== null) ? fmt(temp,0) + ' °C' : 'the shutdown threshold';
+    showFault('⚠ OVERTEMPERATURE',
+      'Board temperature hit <b>' + tempStr + '</b> and output was shut off to protect the buck MOSFET. Let the unit cool, then dismiss to resume.',
+      'thermal', ' · buck sensor');
+  }
+
+  function updateLockoutSub(){
+    var sub = (resumeTemp !== null) ? ('cooling · output locked until ' + fmt(resumeTemp,0) + ' °C') : 'cooling · output locked';
+    el('lockoutSub').textContent = sub;
+  }
+
+  function dismissFault(){
+    faultShown = false;
+    el('psu').classList.remove('show-fault');
+    if(thermalLockout){
+      lockoutShown = true;
+      el('psu').classList.add('show-lockout','is-locked');
+      updateLockoutSub();
+    } else {
+      el('psu').classList.remove('is-locked');
+    }
+  }
+
+  function clearAllOverlays(){
+    faultShown = false;
+    lockoutShown = false;
+    faultSource = null;
+    el('psu').classList.remove('show-fault','show-lockout','is-locked');
+  }
+
+  // ---- generic stepper val display (face) ----
+  function setStepperVal(obj, v){
+    if(staleEcho(obj, v)) return;   // ignore stale echo until our write confirms
+    var stepper = document.querySelector('.stepper[data-obj="' + obj + '"]');
+    if(!stepper) return;
+    var dec = parseInt(stepper.getAttribute('data-dec'),10);
+    var valEl = stepper.querySelector('[data-role="val"]');
+    if(valEl && document.activeElement !== valEl.querySelector('input')){
+      valEl.textContent = fmt(v, dec);
+    }
+    stepper.setAttribute('data-current', v);
+    if(obj === 'set_voltage') highlightPreset(v);
+  }
+
+  // ---- config field val display ----
+  function setCfgFieldVal(obj, v){
+    if(staleEcho(obj, v)) return;   // ignore stale echo until our write confirms
+    if(obj === 'cfg_temp_derate_start') derateStart = v;
+    if(obj === 'cfg_temp_shutdown') shutdownTemp = v;
+    if(obj === 'cfg_temp_resume') resumeTemp = v;
+    // Mirror the live curve values into the charger-face summary.
+    if(obj === 'cfg_absorb_voltage') el('csAbsorb').textContent = fmt(v,2);
+    if(obj === 'cfg_float_voltage')  el('csFloat').textContent  = fmt(v,2);
+    if(obj === 'cfg_charge_max_a')   el('csMaxA').textContent   = fmt(v,2);
+    var field = document.querySelector('.field[data-obj="' + obj + '"]');
+    if(!field) return;
+    field.setAttribute('data-current', v);
+    var dec = parseInt(field.getAttribute('data-dec'),10);
+    var display = v;
+    if(field.getAttribute('data-unitconv') === 'sec2min') display = v / 60;
+    var vEl = field.querySelector('.v');
+    // Don't clobber an open tap-to-type editor (slow poll re-sends limits every ~2 s); data-current is still updated.
+    if(vEl && !(vEl.querySelector('input') && document.activeElement === vEl.querySelector('input'))) vEl.textContent = fmt(display, dec);
+    if((obj === 'cfg_temp_derate_start' || obj === 'cfg_temp_shutdown') && vEl){
+      // no self-hazard styling needed for the config numbers themselves
+    }
+  }
+
+  function el(id){ return document.getElementById(id); }
+
+  // ================= FACE steppers (hold-to-repeat + tap to type) =================
+  function wireFaceSteppers(){
+    document.querySelectorAll('.stepper').forEach(function(stepper){
+      var obj = stepper.getAttribute('data-obj');
+      var dec = parseInt(stepper.getAttribute('data-dec'),10);
+      var min = parseFloat(stepper.getAttribute('data-min'));
+      var max = parseFloat(stepper.getAttribute('data-max'));
+
+      stepper.querySelectorAll('button[data-step]').forEach(function(btn){
+        var step = parseFloat(btn.getAttribute('data-step'));
+        wireHold(btn, function(){
+          var cur = parseFloat(stepper.getAttribute('data-current') || '0');
+          var next = clamp(round(cur + step, dec), min, max);
+          stepper.setAttribute('data-current', next);
+          stepper.querySelector('[data-role="val"]').textContent = fmt(next, dec);
+          if(obj === 'set_voltage') setrowV(next);        // live-sync SET readout
+          else if(obj === 'set_current') setrowA(next);
+          debouncedPost('number', obj, next);
+        });
+      });
+
+      var valEl = stepper.querySelector('[data-role="val"]');
+      // mousedown (not click) so a press+drag anywhere in the box focuses it.
+      var startEdit = function(e){
+        if(e.target.tagName === 'INPUT') return;   // already editing
+        e.preventDefault();                         // suppress text-caret drag
+        beginEdit(valEl, obj, dec, min, max, function(next){
+          stepper.setAttribute('data-current', next);
+        });
+      };
+      valEl.addEventListener('mousedown', startEdit);
+      valEl.addEventListener('touchstart', startEdit, {passive:false});
+      valEl.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' ') startEdit(e); });
+    });
+  }
+
+  // ---- voltage preset hotbar (mirrors the GPIO11 button's PSU preset list) ----
+  function wirePresets(){
+    document.querySelectorAll('#presetRow button[data-preset]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var v = parseFloat(btn.getAttribute('data-preset'));
+        var stepper = document.querySelector('.stepper[data-obj="set_voltage"]');
+        var dec = parseInt(stepper.getAttribute('data-dec'),10);
+        stepper.setAttribute('data-current', v);
+        stepper.querySelector('[data-role="val"]').textContent = fmt(v, dec);
+        setrowV(v);
+        cancelPost('number','set_voltage');   // explicit pick supersedes queued write
+        post('number','set_voltage','set', v);
+        highlightPreset(v);
+      });
+    });
+  }
+  function highlightPreset(v){
+    document.querySelectorAll('#presetRow button[data-preset]').forEach(function(btn){
+      var on = Math.abs(parseFloat(btn.getAttribute('data-preset')) - v) < 0.005;
+      if(on) btn.classList.add('active'); else btn.classList.remove('active');
+    });
+  }
+
+  // ---- chemistry profiles (charger mode) ----
+  // Each entry loads a static curve into the existing Cfg number entities; the
+  // values stay editable in config afterward. Add a sibling + a chip button to
+  // support another chemistry. The global max V/A/W clamp is the hard ceiling.
+  var PROFILES = {
+    leadacid: {
+      cfg_absorb_voltage: 14.4, cfg_float_voltage: 13.8,
+      cfg_charge_max_a: 3.5,    cfg_absorb_taper_a: 1.5,
+      cfg_charge_vin_start: 13.8, cfg_charge_vin_stop: 13.2, cfg_charge_vin_max: 15.0
+    }
+  };
+  function applyProfile(name){
+    var p = PROFILES[name];
+    if(!p) return;
+    Object.keys(p).forEach(function(obj){
+      cancelPost('number', obj);
+      post('number', obj, 'set', p[obj]);   // fires the config field + curve-summary echo
+    });
+  }
+  function wireProfiles(){
+    var chip = el('chemLeadAcid');
+    if(chip) chip.addEventListener('click', function(){ applyProfile('leadacid'); });
+  }
+
+  // ================= CHARGE (programmable charging, Task 13) =================
+  // Ties the pure charge engine (src/charge/*) to the panel. The engine/runner
+  // never touch the DOM or the transport directly — this section is the only
+  // glue: it feeds live telemetry in, and turns the runner's writes into the
+  // same post() calls the rest of the panel already uses.
+  var chgLastV = null, chgLastI = null, chgLastVin = null, chgLastCC = null;
+  var chgLog = [];
+  var CHG_LOG_MAX = 200000;   // ~16h of samples at the 300ms feed cadence below
+  var CHG_FEED_MS = 300;
+  var CHG_ACTIVE_STAGES = ['PRECHARGE','CC','CV','FLOAT'];
+
+  var tempReader = new TempReader({ staleMs: 4000 });
+  var tempTransport = null;
+  var tempConnected = false;
+
+  function chgApply(w){
+    if(w.type === 'V') post('number', 'set_voltage', 'set', w.value);
+    else if(w.type === 'I') post('number', 'set_current', 'set', w.value);
+    else if(w.type === 'OUTPUT') post('switch', 'output_enable', w.value ? 'turn_on' : 'turn_off');
+  }
+  var chargeRunner = new ChargeRunner({ apply: chgApply, now: function(){ return performance.now(); } });
+
+  function chgIsRunning(){ return CHG_ACTIVE_STAGES.indexOf(chargeRunner.stage) >= 0; }
+  function chgLinkLive(){ var d = el('linkDot'); return !!d && !d.classList.contains('off'); }
+  function chgTelemetryReady(){
+    // No Vin gate: the STP2S has its own fixed internal DC rail (Vin was a D3806 buck-input check).
+    return typeof chgLastV === 'number' && typeof chgLastI === 'number';
+  }
+
+  // Device/protection ceilings already tracked elsewhere in this file (the
+  // face stepper's data-max, kept in sync from upperLimitVoltage/Current in
+  // backend.js; and the OVP/OCP config fields) — reused here as the charge
+  // engine's hard safety clamp so a bad profile pick can never exceed them.
+  function getSafetyClamps(){
+    var vStepper = document.querySelector('.stepper[data-obj="set_voltage"]');
+    var aStepper = document.querySelector('.stepper[data-obj="set_current"]');
+    var vMax = vStepper ? parseFloat(vStepper.getAttribute('data-max')) : 30;
+    var aMax = aStepper ? parseFloat(aStepper.getAttribute('data-max')) : 5;
+    if(!isFinite(vMax) || vMax <= 0) vMax = 30;
+    if(!isFinite(aMax) || aMax <= 0) aMax = 5;
+    var ovpField = document.querySelector('.field[data-obj="cfg_max_voltage"]');
+    var ocpField = document.querySelector('.field[data-obj="cfg_max_current"]');
+    var ovp = ovpField ? parseFloat(ovpField.getAttribute('data-current')) : NaN;
+    var ocp = ocpField ? parseFloat(ocpField.getAttribute('data-current')) : NaN;
+    var vSrc = 'psu';
+    if(isFinite(ovp) && ovp > 0 && ovp < vMax){ vMax = ovp; vSrc = 'ovp'; }
+    if(isFinite(ocp) && ocp > 0) aMax = Math.min(aMax, ocp);
+    return { clampV: vMax, clampA: aMax, vSrc: vSrc };
+  }
+
+  function readChgJob(){
+    return {
+      chemistry: el('chgChem').value,
+      cells: parseInt(el('chgCells').value, 10) || 1,
+      capacityAh: parseFloat(el('chgCapacity').value) || 0,
+      chargeA: parseFloat(el('chgChargeReq').value) || 0,   // user-set, primary
+    };
+  }
+  function chgEnv(){
+    var clamps = getSafetyClamps();
+    // Mirror the engine's staleness gating: a stale pack reading must not
+    // drive temp-compensation math (it would keep applying a frozen offset
+    // forever). Omit packTemp when stale/absent so deriveJob falls back to
+    // its nominal (25C, no compensation) behavior.
+    var packStale = tempReader.isStale('pack', performance.now());
+    var packTemp = packStale ? undefined : tempReader.latest('pack');
+    return { packTemp: packTemp, deviceImax: clamps.clampA, clampV: clamps.clampV, clampA: clamps.clampA };
+  }
+
+  var _chgCapKey = '';
+  // Minimal toast: one at a time, auto-hides, click to dismiss.
+  var _toastT = null;
+  function toast(msg){
+    var t = el('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(_toastT); _toastT = setTimeout(function(){ t.classList.remove('show'); }, 8000);
+  }
+
+  function chgRenderPreview(){
+    var job = readChgJob(), d;
+    try { d = chgDeriveJob(job, chgEnv()); } catch(e){ console.warn('deriveJob:', e); return null; }
+    el('chgAbsorbV').textContent = d.absorbV.toFixed(2) + ' V';
+    el('chgFloatV').textContent = (d.floatV == null ? '—' : d.floatV.toFixed(2) + ' V');
+    el('chgChargeA').textContent = d.chargeA.toFixed(2) + ' A';
+    el('chgCRateOut').textContent = (job.capacityAh > 0 ? (d.chargeA / job.capacityAh).toFixed(2) : '-.--') + ' C';
+    el('chgTaperA').textContent = d.taperA.toFixed(2) + ' A';
+    // Applied current below what the user asked → the device/clamp is limiting it.
+    el('chgClampWarn').style.display = (d.requestedA - d.chargeA > 0.01) ? '' : 'none';
+    // Absorb capped: safe (output never exceeds the cap) but the pack won't reach full charge.
+    // Toast once per new cap, not every telemetry tick; the Absorb row keeps a "capped" tag.
+    var capped = d.wantV - d.absorbV > 0.005, capKey = capped ? d.absorbV.toFixed(2) + '/' + d.wantV.toFixed(2) : '';
+    if(capped) el('chgAbsorbV').textContent = d.absorbV.toFixed(2) + ' V · capped';
+    // Only toast where it matters (charge view open, or charging); the preview also runs on every PSU-mode poll.
+    var chgVisible = el('charge').classList.contains('active') || chgIsRunning();
+    if(!chgVisible) return d;   // keep _chgCapKey, so opening the charge view still shows it once
+    if(capKey && capKey !== _chgCapKey) toast('Absorb voltage capped at ' + d.absorbV.toFixed(2) + ' V (profile wants ' + d.wantV.toFixed(2) + ' V). Safe, but the pack won\'t reach full charge. ' +
+      (getSafetyClamps().vSrc === 'ovp' ? 'Raise OVP above ' + d.wantV.toFixed(2) + ' V if you want a full charge.' : 'That\'s over the PSU max; use fewer cells in series for a full charge.'));
+    _chgCapKey = capKey;
+    return d;
+  }
+
+  function setChgInputsDisabled(disabled){
+    ['chgChem','chgCells','chgCapacity','chgChargeReq'].forEach(function(id){ el(id).disabled = disabled; });
+  }
+  function updateChgStartEnabled(){
+    var btn = el('chgStartBtn'); if(!btn) return;
+    btn.disabled = chgIsRunning() || !chgLinkLive() || !chgTelemetryReady();
+  }
+  function updateChgButtons(){
+    var hasJob = chargeRunner.state && chargeRunner.stage !== 'IDLE';
+    el('chgAbortBtn').disabled = !hasJob;
+    setChgInputsDisabled(chgIsRunning());
+    updateChgStartEnabled();
+  }
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderChgStatus(state){
+    var parts = ['<b>' + escapeHtml(state.stage) + '</b>'];
+    if(state.reason) parts.push('<span class="hazard">' + escapeHtml(state.reason) + '</span>');
+    if(state.started){
+      var elapsedS = Math.max(0, Math.round((performance.now() - chargeRunner.startMs) / 1000));
+      parts.push('elapsed ' + elapsedS + 's');
+    }
+    var packT = tempReader.latest('pack');
+    var packStale = tempReader.isStale('pack', performance.now());
+    parts.push('pack ' + (typeof packT === 'number' ? packT.toFixed(1) + '°C' + (packStale ? ' (stale)' : '') : '—'));
+    tempReader.seen.forEach(function(_v, ch){
+      if(ch === 'pack') return;
+      var v = tempReader.latest(ch);
+      parts.push(ch + ' ' + (typeof v === 'number' ? v.toFixed(1) + '°C' : '—'));
+    });
+    parts.push(chgLinkLive() ? 'link ok' : 'link down');
+    parts.push(tempConnected ? 'probe ok' : 'probe off');
+    el('chgStatusLine').innerHTML = parts.join(' · ');
+    el('chgLogCount').textContent = chgLog.length + ' samples';
+  }
+
+  function chgUpdateFaceBadge(state){
+    var badge = el('stageBadge'); if(!badge) return;
+    if(!state.started && state.stage === 'IDLE'){ badge.style.display = 'none'; return; }
+    badge.style.display = '';
+    badge.textContent = state.stage;
+    badge.className = 'in stage-badge' + (state.stage === 'FAULT' ? ' hazard' : '');
+  }
+
+  // feed() ticks the engine every CHG_FEED_MS forever unless we stop it.
+  // IDLE is a stable no-op stage (fine to keep ticking, feed()/onChange both
+  // no-op on it below), but DONE/FAULT are ALSO stable/terminal — the engine
+  // has nothing left to do there (tick()'s default case just returns the
+  // same stage unchanged) — so once reached we stop the interval entirely
+  // (chgStopFeedLoop) rather than rely on log-gating alone: gating stage
+  // alone still let an identical DONE/FAULT row get pushed every tick
+  // forever, eventually shift()-ing real charge-curve rows out of chgLog
+  // once CHG_LOG_MAX was hit. A fresh Start re-arms the loop.
+  var CHG_TERMINAL_STAGES = ['DONE','FAULT'];
+  var chgFeedTimer = null;
+  function chgStartFeedLoop(){
+    if(chgFeedTimer) return;   // already running
+    chgFeedTimer = setInterval(function(){
+      chargeRunner.feed({
+        v: chgLastV, i: chgLastI, vin: chgLastVin,
+        packTemp: tempReader.latest('pack'),
+        packTempStale: tempReader.isStale('pack', performance.now()),
+        cccv: chgLastCC,
+      });
+    }, CHG_FEED_MS);
+  }
+  function chgStopFeedLoop(){
+    if(chgFeedTimer){ clearInterval(chgFeedTimer); chgFeedTimer = null; }
+  }
+
+  // Log/status gating: IDLE is never logged; PRECHARGE/CC/CV/FLOAT (real
+  // progress) log every tick; DONE/FAULT (terminal) log exactly once, via
+  // the _chgLastLoggedStage dedupe, then the feed loop stops so there's
+  // nothing left to re-tick anyway. The status line still repaints once on
+  // any stage transition (including into IDLE) so Abort/fault-reset stays
+  // visible, without repainting every tick for the rest of an idle session.
+  var _chgLastRenderedStage = null;
+  var _chgLastLoggedStage = null;
+  chargeRunner.onChange(function(state, events){
+    events = events || [];
+    var idle = state.stage === 'IDLE';
+    var terminal = CHG_TERMINAL_STAGES.indexOf(state.stage) >= 0;
+    var progressing = !idle && !terminal;   // PRECHARGE/CC/CV/FLOAT
+    if(!idle || state.stage !== _chgLastRenderedStage){
+      renderChgStatus(state);
+      chgUpdateFaceBadge(state);
+    }
+    _chgLastRenderedStage = state.stage;
+    updateChgButtons();
+    if(progressing || (terminal && _chgLastLoggedStage !== state.stage)){
+      var p = (typeof chgLastV === 'number' && typeof chgLastI === 'number') ? chgLastV * chgLastI : null;
+      chgLog.push({ t: Date.now(), v: chgLastV, i: chgLastI, p: p, temp: tempReader.latest('pack'), stage: state.stage });
+      if(chgLog.length > CHG_LOG_MAX) chgLog.shift();
+      _chgLastLoggedStage = state.stage;
+    }
+    if(terminal) chgStopFeedLoop();
+  });
+
+  // Feed telemetry on a timer independent of the SSE/poll cadence — feed() is
+  // a no-op until start() has been called at least once (this.state is null).
+  chgStartFeedLoop();
+
+  function chgOnTelemetry(){ updateChgStartEnabled(); chgRenderPreview(); }
+
+  // Persistent, honest warning for the "link dropped mid-charge" case (see
+  // setLink()): stays up until the operator explicitly dismisses it (they've
+  // verified/killed the real output) or starts a fresh charge. Never cleared
+  // automatically just because the link/telemetry came back — that would
+  // silently imply the interruption was handled.
+  function chgShowLinkLostWarning(){ var w = el('chgLinkLostWarn'); if(w) w.style.display = ''; }
+  function chgHideLinkLostWarning(){ var w = el('chgLinkLostWarn'); if(w) w.style.display = 'none'; }
+
+  function setChgProbeStatus(msg){ var e = el('chgProbeStatus'); if(e) e.textContent = msg; }   // probe UI commented out
+
+  // Temp probe: minimal + optional + graceful. Daemon mode needs an explicit
+  // port (path or vid:pid) since there's no way to auto-discover which serial
+  // device is the temp probe; empty input = skip. WebSerial mode just opens a
+  // second port picker. Either way, failure just leaves temp guards disabled
+  // — charging is never blocked on the probe.
+  async function chgConnectTempProbe(){
+    var btn = el('chgTempConnectBtn');
+    btn.disabled = true; var oldText = btn.textContent; btn.textContent = 'Connecting…';
+    try {
+      var sel = await selectTransport({ url: 'ws://' + location.host + '/serial' });
+      var t;
+      if(sel.mode === 'daemon'){
+        var portVal = el('chgTempPort').value.trim();
+        if(!portVal){ setChgProbeStatus('no port configured — skipped'); return; }
+        t = sel.makeDaemon('temp');
+        // read:true → daemon reads via an fs stream, not node-serialport (which
+        // reads 0 bytes from some USB-CDC probes, e.g. ESP native USB, on macOS).
+        var spec = { baud: 115200, read: true };
+        var m = portVal.match(/^([0-9a-fA-F]{1,4}):([0-9a-fA-F]{1,4})$/);
+        if(m) spec.match = { vid: parseInt(m[1], 16), pid: parseInt(m[2], 16) };
+        else spec.path = portVal;
+        await t.open(spec);
+      } else {
+        if(!('serial' in navigator)){ setChgProbeStatus('WebSerial not available'); return; }
+        t = await sel.pickWebSerial([]);
+        await t.open({ baud: 9600 });
+      }
+      t.onData(function(chunk){ tempReader.push(chunk); probeReadout(); });
+      t.onStatus(function(state){
+        if(state === 'closed' || state === 'error'){
+          tempConnected = false; tempTransport = null;
+          setChgProbeStatus('not connected — temp guards off');
+          probeReadout();
+        }
+      });
+      tempTransport = t; tempConnected = true;
+      setChgProbeStatus('connected (' + sel.mode + ')');
+    } catch(e){
+      tempConnected = false; tempTransport = null;
+      setChgProbeStatus('not connected — temp guards off');
+      console.warn('temp probe connect failed:', e);
+    } finally {
+      btn.disabled = false; btn.textContent = oldText;
+    }
+  }
+
+  function wireCharge(){
+    Object.keys(CHG_PROFILES).forEach(function(key){
+      var opt = document.createElement('option');
+      opt.value = key; opt.textContent = CHG_PROFILES[key].name;
+      el('chgChem').appendChild(opt);
+    });
+    // Temp probe auto-detect/auto-connect + readout refresh: commented out, no way to
+    // hook a probe up on the STP2S (markup is commented out too).
+    // // Ask the daemon what it auto-detected on startup; prefill the temp-probe
+    // // port so the user just clicks Connect. Silent if no daemon (make serve).
+    // fetch('/devices').then(function(r){ return r.ok ? r.json() : null; }).then(function(dev){
+    //   if(!dev || !dev.temp) return;
+    //   var inp = el('chgTempPort');
+    //   if(inp && !inp.value.trim()){ inp.value = dev.temp.path; }
+    //   // Auto-connect the detected probe so its temp streams into the status bar
+    //   // without a manual click. Failure is silent (guards just stay off).
+    //   if(!tempConnected){ chgConnectTempProbe(); }
+    // }).catch(function(){ /* no daemon / no endpoint — leave the field as-is */ });
+    // // Keep the status-bar probe readout honest when the stream goes stale.
+    // setInterval(probeReadout, 1000);
+    ['chgChem','chgCells','chgCapacity','chgChargeReq'].forEach(function(id){
+      el(id).addEventListener('input', chgRenderPreview);
+      el(id).addEventListener('change', chgRenderPreview);
+    });
+    el('chgStartBtn').addEventListener('click', function(){
+      if(chgIsRunning() || !chgLinkLive() || !chgTelemetryReady()) return;
+      chgHideLinkLostWarning();
+      _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
+      chgStartFeedLoop();             // re-arm in case a prior run reached terminal
+      chargeRunner.start(readChgJob(), chgEnv());
+      updateChgButtons();
+    });
+    el('chgLinkLostDismiss').addEventListener('click', chgHideLinkLostWarning);
+    el('chgAbortBtn').addEventListener('click', function(){
+      chargeRunner.abort();
+      updateChgButtons();
+    });
+    // el('chgTempConnectBtn').addEventListener('click', chgConnectTempProbe);   // probe UI commented out
+    el('chgCsvBtn').addEventListener('click', function(){
+      var rows = chgLog.map(function(r){
+        return [ new Date(r.t).toISOString(), r.v == null ? '' : r.v, r.i == null ? '' : r.i,
+                 r.p == null ? '' : r.p, r.temp == null ? '' : r.temp, r.stage ].join(',');
+      });
+      rows.unshift(['time','v','i','p','temp','stage'].join(','));
+      var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'charge-log-' + Date.now() + '.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    });
+    chgRenderPreview();
+    updateChgButtons();
+  }
+
+  // ================= CONFIG steppers =================
+  function wireCfgSteppers(){
+    document.querySelectorAll('.field[data-obj]').forEach(function(field){
+      if(field.hasAttribute('data-ro')) return;   // display-only (OPP: 32-bit reg, no FC06 write)
+      var obj = field.getAttribute('data-obj');
+      var dec = parseInt(field.getAttribute('data-dec'),10);
+      var min = parseFloat(field.getAttribute('data-min'));
+      var max = parseFloat(field.getAttribute('data-max'));
+      var step = parseFloat(field.getAttribute('data-step'));
+      var conv = field.getAttribute('data-unitconv');
+      var vEl = field.querySelector('.v');
+
+      field.querySelectorAll('button[data-dir]').forEach(function(btn){
+        var dir = parseFloat(btn.getAttribute('data-dir'));
+        wireHold(btn, function(){
+          var cur = parseFloat(field.getAttribute('data-current') || '0');
+          var displayStep = step;
+          var rawStep = (conv === 'sec2min') ? displayStep * 60 : displayStep;
+          var next = round(cur + dir * rawStep, conv === 'sec2min' ? 0 : dec);
+          next = clamp(next, min, max);
+          field.setAttribute('data-current', next);
+          var disp = (conv === 'sec2min') ? next/60 : next;
+          vEl.textContent = fmt(disp, dec);
+          debouncedPost('number', obj, next);
+        });
+      });
+
+      var startEditCfg = function(e){
+        if(e.target.tagName === 'INPUT') return;
+        e.preventDefault();
+        var cur = parseFloat(field.getAttribute('data-current') || '0');
+        var dispCur = (conv === 'sec2min') ? cur/60 : cur;
+        beginEditRaw(vEl, dispCur, dec, function(dispNext){
+          var rawNext = (conv === 'sec2min') ? dispNext*60 : dispNext;
+          rawNext = clamp(rawNext, min, max);
+          field.setAttribute('data-current', rawNext);
+          cancelPost('number', obj);
+          post('number', obj, 'set', rawNext);
+          return (conv === 'sec2min') ? rawNext/60 : rawNext;
+        });
+      };
+      vEl.addEventListener('mousedown', startEditCfg);
+      vEl.addEventListener('touchstart', startEditCfg, {passive:false});
+      vEl.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' ') startEditCfg(e); });
+    });
+  }
+
+  function round(n, dec){ var f = Math.pow(10,dec); return Math.round(n*f)/f; }
+  function clamp(n, min, max){ return Math.min(max, Math.max(min, n)); }
+
+  // hold-to-repeat: fire immediately, then repeat after delay
+  function wireHold(btn, fn){
+    var timer = null, interval = null;
+    function start(e){
+      if(e) e.preventDefault();
+      fn();
+      timer = setTimeout(function(){
+        interval = setInterval(fn, 120);
+      }, 500);
+    }
+    function stop(){
+      clearTimeout(timer); clearInterval(interval);
+      timer = null; interval = null;
+    }
+    btn.addEventListener('mousedown', start);
+    btn.addEventListener('touchstart', start, {passive:false});
+    // Keyboard (Enter/Space) fires click with detail 0 and no mousedown: step once.
+    btn.addEventListener('click', function(e){ if(e.detail === 0) fn(); });
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(function(ev){
+      btn.addEventListener(ev, stop);
+    });
+  }
+
+  // tap-to-type on face stepper value
+  function beginEdit(valEl, obj, dec, min, max, onCommit){
+    var cur = valEl.textContent;
+    valEl.innerHTML = '<input type="number" step="any" value="' + cur + '">';
+    var input = valEl.querySelector('input');
+    input.focus(); input.select();
+    function commit(){
+      var v = parseFloat(input.value);
+      if(isNaN(v)) v = parseFloat(cur);
+      v = clamp(round(v, dec), min, max);
+      valEl.textContent = fmt(v, dec);
+      onCommit(v);
+      if(obj === 'set_voltage') setrowV(v);
+      else if(obj === 'set_current') setrowA(v);
+      cancelPost('number', obj);   // explicit commit supersedes any queued write
+      post('number', obj, 'set', v);
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){ input.blur(); }
+      if(e.key === 'Escape'){ valEl.textContent = cur; }
+    });
+  }
+
+  // tap-to-type on config field value (handles unit conversion via callback)
+  function beginEditRaw(vEl, dispCur, dec, onCommit){
+    vEl.innerHTML = '<input type="number" step="any" value="' + fmt(dispCur, dec) + '" style="width:100%;background:transparent;border:none;color:var(--fg);font:inherit;text-align:center;outline:none;">';
+    var input = vEl.querySelector('input');
+    input.focus(); input.select();
+    function commit(){
+      var v = parseFloat(input.value);
+      if(isNaN(v)) v = dispCur;
+      v = round(v, dec);
+      var dispAfter = onCommit(v);
+      vEl.textContent = fmt(dispAfter, dec);
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){ input.blur(); }
+      if(e.key === 'Escape'){ vEl.textContent = fmt(dispCur, dec); }
+    });
+  }
+
+  // ================= view switching =================
+  // Each view has a real URL so a refresh (and back/forward) restores it. The
+  // PanelHandler serves /panel/* → this same SPA, which reads location.pathname.
+  var VIEW_PATH = { psu:'/panel', cfg:'/panel/config', charge:'/panel/charge', logs:'/panel/logs' };
+  var PATH_VIEW = { '/panel':'psu', '/panel/':'psu', '/panel/config':'cfg', '/panel/charge':'charge', '/panel/logs':'logs' };
+
+  function showView(which, push){
+    // logs is an ESP leftover (markup commented out) — el() may be null, but
+    // its route is kept, so guard rather than assume the node exists.
+    ['psu','cfg','charge','logs'].forEach(function(v){ var n = el(v); if(n) n.classList.toggle('active', v === which); });
+    if(which === 'logs'){ var box = el('logConsole'); if(box){ _logStick = true; box.scrollTop = box.scrollHeight; } }
+    if(push !== false){
+      var p = VIEW_PATH[which] || '/panel';
+      if(location.pathname !== p){ try{ history.pushState({view:which}, '', p); }catch(e){} }
+    }
+  }
+  function showFace(){ showView('psu'); }
+  function showConfig(){ showView('cfg'); }
+  function showCharge(){ showView('charge'); chgRenderPreview(); }
+  function showLogs(){ showView('logs'); }
+
+  function routeFromPath(){ return PATH_VIEW[location.pathname] || 'psu'; }
+  function initRoute(){
+    // First load always lands on the PSU face at root — deep routes only exist
+    // within a session (pushState), never as an entry point, so a refresh on a
+    // nested route can't 404 the SPA shell or its module assets.
+    try{ history.replaceState({view:'psu'}, '', '/'); }catch(e){}
+    showView('psu', false);
+    window.addEventListener('popstate', function(ev){
+      showView((ev.state && ev.state.view) || routeFromPath(), false);
+    });
+  }
+
+  // ================= wiring buttons =================
+  function wireButtons(){
+    el('gearBtn').addEventListener('click', showConfig);
+    el('cfgDone').addEventListener('click', showFace);
+    el('chargeBtn').addEventListener('click', showCharge);
+    el('chargeDone').addEventListener('click', showFace);
+    // Logs button removed with the ESP-leftover view (route kept).
+
+    el('outputBtn').addEventListener('click', function(){
+      var isOn = el('outputBtn').classList.contains('on');
+      post('switch', 'output_enable', isOn ? 'turn_off' : 'turn_on');
+    });
+
+    // STP2S has no device-side mode register: PSU/Charger is a panel-local view mode
+    // (the charge engine runs in the browser either way).
+    function toggleMode(){
+      if(!psuMode && chgIsRunning()){ window.alert('Abort the charge before switching to PSU mode.'); return; }
+      setMode(!psuMode);
+    }
+    el('modeBtn').addEventListener('click', toggleMode);
+    el('cfgModeBtn').addEventListener('click', toggleMode);
+
+    el('displayTestToggle').addEventListener('click', function(){
+      var next = !displayTestOn;
+      displayTest(next);   // optimistic flip — never wait on / trust a stale echo
+      post('switch', 'display_test', next ? 'turn_on' : 'turn_off');
+    });
+
+    document.querySelectorAll('.prot-sw').forEach(function(t){
+      function flip(){
+        if(t.getAttribute('aria-disabled') === 'true') return;   // no link
+        post('switch', t.getAttribute('data-sw'), t.classList.contains('on') ? 'turn_off' : 'turn_on');   // echo sets the pill
+      }
+      t.addEventListener('click', flip);
+      t.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); flip(); } });
+    });
+
+    el('buckOvToggle').addEventListener('click', function(){
+      var next = !buckOverrideOn;
+      if(next && !window.confirm('Bypass the buck NTC cold/loose-sensor cutoff?\n\nOnly do this with a known-faulty sensor. Hot-shutdown still protects the FET, but a genuinely cold/failed sensor will no longer stop charging.')) return;
+      buckOverride(next);   // optimistic flip
+      post('switch', 'buck_ntc_override', next ? 'turn_on' : 'turn_off');
+    });
+
+    el('rebootBtn').addEventListener('click', function(){
+      if(window.confirm('Reboot the D3806 now?')) post('button', 'device_restart', 'press');
+    });
+
+    el('faultDismiss').addEventListener('click', dismissFault);
+
+    el('calBar').addEventListener('click', function(){
+      el('calSection').classList.toggle('open');
+    });
+  }
+
+  // ================= boot =================
+  wireFaceSteppers();
+  wireCfgSteppers();
+  wirePresets();
+  wireProfiles();
+  wireCharge();
+  wireButtons();
+  initSpark('v'); initSpark('a'); initSpark('w');
+  initRoute();
+
+  // ---- STP2S adaptation: single-mode PSU; hide config with no DPS analog ----
+  setMode(true);                                   // start in PSU mode; ⇄ switches to the browser-side charger
+  (function dpsAdapt(){
+    var t = document.querySelector('.field[data-obj="cfg_temp_derate_start"]');
+    if(t){ var sec = t.closest('.sec'); if(sec) sec.style.display = 'none'; }   // Thermal section
+    var cal = el('calSection'); if(cal) cal.style.display = 'none';             // Calibration (device-side)
+    ['displayTestToggle','rebootBtn'].forEach(function(id){                     // display-test + reboot rows
+      var e = el(id); if(e){ var f = e.closest('.field'); if(f) f.style.display = 'none'; }
+    });
+    ['led_brightness'].forEach(function(o){                                    // no brightness register
+      var f = document.querySelector('.field[data-obj="'+o+'"]'); if(f) f.style.display = 'none';
+    });
+    var pd = document.querySelector('.field[data-obj="led_brightness"]');          // Power & Display: every row hidden
+    if(pd){ var sec3 = pd.closest('.sec'); if(sec3) sec3.style.display = 'none'; }
+    var ps = el('syncPresetsBtn'); if(ps){ var sec2 = ps.closest('.sec'); if(sec2) sec2.style.display = 'none'; } // no M1-M6 registers
+  })();
+
+  // ---- connect UX ----
+  // The overlay (big Connect button + steps) and the topbar 🔌 icon share one
+  // connect/disconnect path. Overlay is shown whenever no session is open; the
+  // 🔌 toggles ⏏ to disconnect (session-close → returns front-panel control).
+  function refreshConnUI(){
+    var B = window.DPSBackend, on = B && B.isConnected();
+    var daemon = on && B.isDaemon && B.isDaemon();
+    var b = el('connectBtn');
+    b.setAttribute('aria-label', !on ? 'Connect STP2S' : (daemon ? 'Power off server' : 'Disconnect (return local control)'));
+    // Daemon mode: the server owns the port, so the topbar action is "power off
+    // the server", not a session disconnect. WebSerial: plain connect/disconnect.
+    b.textContent = !on ? '🔌' : (daemon ? '⏻' : '⏏');
+    b.title = !on ? 'Connect STP2S'
+      : (daemon ? 'Power off server' : 'Disconnect (return local control)');
+    el('connectOverlay').classList.toggle('show', !on);
+    if(!on) desktopModal();
+  }
+  // Desktop app only (preload.js exposes window.electronAPI): main.js grants the PSU's port
+  // without a picker, so connect as soon as it's plugged in and show "waiting" instead of a
+  // Connect button while it isn't. Browsers keep the click-to-pick flow.
+  var desktop = window.electronAPI, _waitingForPort = false;
+  function desktopModal(){
+    if(!desktop) return;
+    el('connectSteps').style.display = 'none';            // picker instructions don't apply
+    el('connectGo').style.display = _waitingForPort ? 'none' : '';
+    if(!_waitingForPort) return;
+    el('connectTitle').textContent = 'Waiting for STP2S';
+    el('connectSub').textContent = 'Plug in the COM USB-C port and power the unit';
+    var ic = el('connectIcon'); ic.textContent = '🔌'; ic.className = 'cicon pulse';
+  }
+  function desktopConnect(){
+    var B = window.DPSBackend;
+    if(_waitingForPort || (B && B.isConnected())) return;
+    _waitingForPort = true; refreshConnUI();
+    desktop.requestPsuPort().then(
+      function(){ _waitingForPort = false; bootConnect(); },
+      function(){ _waitingForPort = false; refreshConnUI(); });
+  }
+  // Transient hint by the link dot — used for the gesture-free daemon connect,
+  // where there's no modal to confirm the link. Fades itself out.
+  var _linkTipTimer = null;
+  function showLinkTip(text){
+    var t = el('linkTip'); if(!t) return;
+    t.textContent = text;
+    t.classList.add('show');
+    if(_linkTipTimer) clearTimeout(_linkTipTimer);
+    _linkTipTimer = setTimeout(function(){ t.classList.remove('show'); }, 2500);
+  }
+  function doConnect(){
+    var B = window.DPSBackend;
+    if(!B){ el('connectErr').textContent = 'Loading… try again in a moment.'; return; }
+    el('connectErr').textContent = '';
+    el('connectSub').textContent = 'Requesting port…';
+    // "PSU not answering" leaves the port open; close it first so requestPort
+    // can hand it back instead of failing with "already open".
+    var pre = B.isConnected() ? B.disconnect() : Promise.resolve();
+    pre.then(function(){ return B.connect(); }).then(function(res){
+      refreshConnUI();
+      if(res && res.mode === 'daemon' && !res.skipped) showLinkTip('Connected · daemon');
+    }).catch(function(e){
+      el('connectSub').textContent = 'Not connected';
+      var m = (e && e.message) || String(e);
+      var err = el('connectErr');
+      if(/No port selected|cancel/i.test(m)){
+        err.textContent = '';                                  // picker dismissed — no nag
+      } else if(/open|in use|busy|access|locked/i.test(m)){
+        err.innerHTML = 'Port busy — something else has it open.<br>' +
+          'Close other STP2S tabs or the vendor Windows app, or unplug &amp; replug USB, then Connect.';
+      } else {
+        err.textContent = 'Connect failed: ' + m;
+      }
+    });
+  }
+  // Eject with live output: confirm + countdown. No action by the end = keep the
+  // output running (the safe-for-a-live-circuit default). Any button cancels the timer.
+  var ejectTimer = null;
+  function stopEjectCountdown(){ if(ejectTimer){ clearInterval(ejectTimer); ejectTimer = null; } }
+  function hideEject(){ stopEjectCountdown(); el('ejectOverlay').classList.remove('show'); }
+  function ejectLeaveGo(){ _userEject = true; hideEject(); window.DPSBackend.disconnect().finally(refreshConnUI); }
+  function ejectOffGo(){ _userEject = true; hideEject(); window.DPSBackend.disconnect({turnOff:true}).finally(refreshConnUI); }
+  function startEject(){
+    el('ejectOverlay').classList.add('show');
+    var n = 5; el('ejectCount').textContent = '(' + n + ')';
+    stopEjectCountdown();
+    ejectTimer = setInterval(function(){
+      n--;
+      if(n <= 0){ ejectLeaveGo(); return; }   // timeout → leave running & disconnect
+      el('ejectCount').textContent = '(' + n + ')';
+    }, 1000);
+  }
+  el('ejectLeave').addEventListener('click', ejectLeaveGo);
+  el('ejectOff').addEventListener('click', ejectOffGo);
+  el('ejectCancel').addEventListener('click', hideEject);
+
+  function doDisconnect(){
+    var B = window.DPSBackend; if(!B) return;
+    if(outputOn){ startEject(); return; }        // live output → confirm w/ countdown
+    _userEject = true;
+    B.disconnect().finally(refreshConnUI);       // output off → eject silently
+  }
+  // Daemon mode: the ⏻ button stops the server outright (it owns the serial port).
+  // The device keeps sourcing if output was on, so warn before killing the link.
+  function powerOffServer(){
+    var B = window.DPSBackend; if(!B) return;
+    if(outputOn && !window.confirm(
+      'Output is ON — it will stay LIVE after the server stops (the device keeps ' +
+      'sourcing with no monitoring).\n\nStop the server anyway?')) return;
+    _serverStopped = true; _userEject = true; _clearReconn();
+    el('shutdownOverlay').classList.add('show');
+    B.shutdownServer();                          // fire-and-forget; server exits mid-response
+  }
+  el('shutdownReload').addEventListener('click', function(){ location.reload(); });
+  el('connectBtn').addEventListener('click', function(){
+    var B = window.DPSBackend;
+    if(!(B && B.isConnected())){ doConnect(); return; }
+    if(B.isDaemon && B.isDaemon()) powerOffServer(); else doDisconnect();
+  });
+  el('connectGo').addEventListener('click', doConnect);
+  // Settings (serial trace) stay reachable while disconnected: debug a failed connect.
+  el('connectCfg').addEventListener('click', function(){
+    el('connectOverlay').classList.remove('show');
+    showConfig();
+  });
+
+  // Write the app's presets into the device's M1–M6 memory (matches the D3806
+  // preset list: voltages + paired currents). Confirms first — overwrites device memory.
+  var PANEL_PRESETS = [[3.33,1.0],[5.0,3.0],[9.0,2.0],[12.0,3.0],[13.8,4.0],[20.0,2.75]];
+  el('syncPresetsBtn').addEventListener('click', function(){
+    var B = window.DPSBackend;
+    if(!(B && B.isConnected())){ alert('Connect to the STP2S first.'); return; }
+    if(!window.confirm('Overwrite the DPS-150 M1–M6 memory slots with the panel presets?')) return;
+    var btn = el('syncPresetsBtn'), old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Writing…';
+    B.writePresets(PANEL_PRESETS)
+      .then(function(){ btn.textContent = 'Written ✓'; })
+      .catch(function(e){ btn.textContent = 'Failed'; console.warn('writePresets:', e); })
+      .finally(function(){ setTimeout(function(){ btn.disabled = false; btn.textContent = old; }, 1500); });
+  });
+
+  // Support gate: tell the wrong browser instead of handing it a dead button.
+  if(!('serial' in navigator)){
+    el('connectSteps').innerHTML = 'This browser has no <b>WebSerial</b>.<br>Open this page in <b>Chrome</b> or <b>Edge</b> (desktop) in a secure browser context.';
+    el('connectIcon').classList.remove('pulse');
+    var go = el('connectGo'); go.disabled = true; go.textContent = 'Unsupported browser';
+  }
+
+  connect();
+  // Auto-connect the daemon on load (no user gesture needed). WebSerial needs a
+  // click, so in that case connect({auto}) bails with skipped:true and we show
+  // the modal. Daemon success → gesture-free connect + a fading link-dot hint.
+  function bootConnect(){
+    var B = window.DPSBackend;
+    if(!B){ setTimeout(bootConnect, 60); return; }   // backend module still loading
+    B.connect({ auto: true }).then(function(res){
+      refreshConnUI();
+      if(res && res.mode === 'daemon' && !res.skipped) showLinkTip('Connected · daemon');
+    }).catch(function(e){                              // daemon reachable but open failed → modal
+      refreshConnUI();
+      if(desktop) el('connectErr').textContent = 'Connect failed: ' + ((e && e.message) || e);
+    });
+  }
+  if(desktop){
+    desktopConnect();
+    navigator.serial.addEventListener('disconnect', desktopConnect);   // unplugged: wait for it again
+  } else {
+    bootConnect();
+  }
+
+})();
+</script>
+</body>
+</html>
