@@ -89,7 +89,6 @@ Table caveat: 0x0003–0x0004 rows carry only "Temperature" / "Auxiliary Power" 
 - Setpoint write clamping vs Umax/Imax; behaviour when OVP < SetU.
 - Doc is V25; bundled exe is "V20". Register differences between versions: ?
 - Whether the internal MCU UART is exposed as TTL on a header (for ESP32 wiring) vs only via CH340.
-- ESPHome `modbus_controller` batching vs the 4-word read cap: ? (see NEXT_STEPS).
 
 ## Hardware confirmation (2026-11-07, 9600 8N1, slave 1)
 
@@ -141,6 +140,6 @@ TEMP confirmed: panel menu item 13 "TEMP" (display on/off, no register in the ma
 
 Per Rob: with TEMP display on, the panel shows temperature **in place of the watts readout** and doesn't alternate. Serial read with TEMP display on (output off): reg 0x0003 = 27, still readable. Whether 0x0012-13 (P) keeps updating over serial while the display shows temp: untested (needs output on with a load).
 
-Correction: the "cold boot" for the baud change was the front-panel power switch (Rob), not an AC unplug. The switch cuts the aux/5 V path and resets the STM8; baud is applied at boot. (Earlier note "needs a cold boot" stands; "AC unplug" does not.)
+Correction: the "cold boot" for the baud change was the front-panel power switch (Rob), not an AC unplug. The switch switches Live, so it cold-boots the STM8; baud is applied at boot. (Earlier note "needs a cold boot" stands; "AC unplug" does not.)
 
 NO (0x0045) upgraded: manual §6.3 "Set Power-On Default Output Status": menu item "NO": OFF = no output after power-on; YES = automatic DC output at power-up. Confirms it is the power-up output state (0x0001 is the live output). Register value polarity (1 = YES) still untested.
