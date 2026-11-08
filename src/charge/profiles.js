@@ -1,16 +1,41 @@
 // absorbV/floatV are per-cell defaults; a job may override them (absorbCellV/floatCellV), capped at
 // maxCellV, the hard per-cell ceiling for the chemistry.
 export const PROFILES = {
-  liion:    { name: 'Li-ion/LiPo', nominalV: 3.7, maxCellV: 4.25, absorbV: 4.20, floatV: null, taperC: 0.05, tempC: [0, 45],   tempComp: 0,  precharge: { belowV: 3.0, a: 0.1 } },
-  lifepo4:  { name: 'LiFePO4',     nominalV: 3.2, maxCellV: 3.65, absorbV: 3.65, floatV: 3.40, taperC: 0.05, tempC: [0, 55],   tempComp: 0,  precharge: { belowV: 2.5, a: 0.1 } },
-  leadacid: { name: 'Lead-acid/AGM', nominalV: 2.0, maxCellV: 2.50, absorbV: 2.40, floatV: 2.25, taperC: 0.02, tempC: [-10, 50], tempComp: -4, precharge: null },
+  liion:    { name: 'Li-ion/LiPo', nominalV: 3.7, minCellV: 2.5, maxCellV: 4.25, maxCRate: 1, absorbV: 4.20, floatV: null, taperC: 0.05, tempC: [0, 45],   tempComp: 0,  precharge: { belowV: 3.0, a: 0.1 } },
+  lifepo4:  { name: 'LiFePO4',     nominalV: 3.2, minCellV: 2.0, maxCellV: 3.65, maxCRate: 1, absorbV: 3.65, floatV: 3.40, taperC: 0.05, tempC: [0, 55],   tempComp: 0,  precharge: { belowV: 2.5, a: 0.1 } },
+  leadacid: { name: 'Lead-acid/AGM', nominalV: 2.0, minCellV: 1.75, maxCellV: 2.50, maxCRate: 0.3, absorbV: 2.40, floatV: 2.25, taperC: 0.02, tempC: [-10, 50], tempComp: -4, precharge: null },
 };
+
+// Pack voltage window for a job: deeply discharged (minCellV) to the chemistry ceiling (maxCellV),
+// plus PACK_SLACK_V either side. A sensed voltage outside it means the cell count/chemistry is wrong
+// for what's on the terminals, and START stays locked. Adjacent cell counts overlap (LiFePO4 4S
+// 8.0-14.6 V vs 5S 10.0-18.25 V), so this catches gross mismatches (1S vs 4S, 8S vs 4S), not 4S vs 5S.
+export const PACK_SLACK_V = 0.5;
+export function packVRange(chemistry, cells) {
+  const p = PROFILES[chemistry];
+  if (!p || !(cells > 0)) return null;
+  return { lo: p.minCellV * cells - PACK_SLACK_V, hi: p.maxCellV * cells + PACK_SLACK_V };
+}
+
+// maxCRate: charge rate (A per Ah) above which START needs an explicit override. Datasheet standard
+// charge is 0.5-1C for Li-ion/LiPo and LiFePO4 (some cells allow more; their datasheet wins), and
+// ~0.1-0.3C for lead-acid/AGM.
+export function overCRate(chemistry, chargeA, capacityAh) {
+  const p = PROFILES[chemistry];
+  if (!p || !(capacityAh > 0)) return null;
+  const c = chargeA / capacityAh;
+  return c > p.maxCRate + 1e-9 ? { c, max: p.maxCRate } : null;
+}
 
 // Taper current is capped at this fraction of the actual charge current, so a
 // device-/supply-limited charge still has taperA < chargeA (CV can't terminate
 // on the first tick). Only bites when the charge current is low relative to
 // capacity (undersized supply); a well-sized charge keeps the profile taper.
 export const TAPER_MAX_FRAC = 0.2;
+
+// Charge power ceiling: the STP2S is rated 32 V × 10 A, but reviews put its real limit nearer
+// 280-300 W, so charge current is capped at MAX_CHARGE_W / absorbV. Peak power is at absorb (end of CC).
+export const MAX_CHARGE_W = 300;
 
 export function deriveJob(job, env) {
   const p = PROFILES[job.chemistry];
@@ -32,7 +57,7 @@ export function deriveJob(job, env) {
   // only a C-rate is given (keeps older callers/tests working). The requested
   // value is clamped to what the device + safety-clamp can actually deliver.
   const requestedA = (job.chargeA != null ? job.chargeA : (cRate || 0) * capacityAh);
-  const chargeA = Math.min(requestedA, deviceImax, clampA);
+  const chargeA = Math.min(requestedA, deviceImax, clampA, absorbV > 0 ? MAX_CHARGE_W / absorbV : Infinity);
   // Taper (CV → float / done) must stay meaningfully below the ACTUAL charge
   // current, else a device-/supply-limited charge terminates CV instantly. Cap
   // the profile's absolute taper at a fraction of the real charge current.

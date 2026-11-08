@@ -25,3 +25,24 @@ test('deriveJob: per-cell absorb/float overrides, capped at the chemistry maximu
   const dflt = deriveJob({ chemistry: 'liion', cells: 4, capacityAh: 10, chargeA: 2, floatCellV: 4.0 }, env);
   assert.equal(dflt.absorbV.toFixed(2), '16.80'); assert.equal(dflt.floatV, null, 'Li-ion has no float stage');
 });
+
+test('safety: pack voltage window, C-rate max', async () => {
+  const { packVRange, overCRate } = await import('../../src/charge/profiles.js');
+  const r = packVRange('leadacid', 1);
+  assert.ok(13.35 > r.hi, '12 V battery on a 1S lead-acid job is out of range');
+  const r4 = packVRange('lifepo4', 4);
+  assert.ok(13.3 >= r4.lo && 13.3 <= r4.hi, '4S LiFePO4 at rest fits');
+  assert.ok(26.6 > r4.hi, '8S pack on a 4S job does not');
+  assert.equal(overCRate('liion', 1, 1), null, '1C Li-ion is fine');
+  assert.deepEqual(overCRate('liion', 6, 1), { c: 6, max: 1 });
+  assert.ok(overCRate('leadacid', 6, 6), '1C lead-acid is over 0.3C');
+});
+
+test('deriveJob: charge current capped at 300 W at absorb', () => {
+  const d = deriveJob({ chemistry: 'lifepo4', cells: 8, capacityAh: 100, chargeA: 10 }, { deviceImax: 10.2, clampV: 32, clampA: 10.2 });
+  assert.equal(d.chargeA, 10, '8S LiFePO4 at 10 A is 292 W: under the cap, untouched');
+  // 7S Li-ion at 4.25 V/cell: 29.75 V × 10.2 A = 303 W, so current drops to 300 / 29.75 ≈ 10.08 A.
+  const h = deriveJob({ chemistry: 'liion', cells: 7, capacityAh: 100, chargeA: 10.2, absorbCellV: 4.25 }, { deviceImax: 10.2, clampV: 32, clampA: 10.2 });
+  assert.equal(h.maxW.toFixed(1), '300.0');
+  assert.equal(h.chargeA.toFixed(2), '10.08');
+});

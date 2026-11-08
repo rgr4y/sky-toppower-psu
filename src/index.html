@@ -84,6 +84,7 @@
       <div class="glass">
         <div class="setrow">
           <span id="modeTag" style="color:var(--a);">⚡ Charger</span>
+          <span class="charger-only" id="chgTempTop">TEMP --°C</span>
         </div>
         <!-- Split like the real unit: measured | unit | setpoint. Sparklines sit behind the measured digits. -->
         <div class="digits">
@@ -136,6 +137,7 @@
       </div>
       <!-- Charge status (stage · reason · elapsed), mirrored from the Charge view (renderChgStatus) -->
       <div class="curve-summary charger-only" id="chgFaceStatus">Idle</div>
+      <div class="start-block charger-only" id="chgStartBlock" hidden></div>
       <!-- PSU MODE: quick voltage presets -->
       <div class="adj presets psu-only">
         <span class="tag"></span>
@@ -266,9 +268,9 @@
       <div class="field"><div class="name">Chemistry</div><select id="chgChem" class="chg-select"></select></div>
       <div class="field"><div class="name">Cells</div><input type="number" id="chgCells" class="chg-input" min="1" max="24" step="1" value="4"></div>
       <div class="field"><div class="name">Capacity<small>Ah</small></div><input type="number" id="chgCapacity" class="chg-input" min="0.1" step="0.1" value="10"></div>
-      <div class="field"><div class="name">Charge current<small>A · dial down for a smaller supply</small></div><input type="number" id="chgChargeReq" class="chg-input" min="0.1" step="0.1" value="2">
+      <div class="field"><div class="name">Charge current<small>A · dial down for a smaller supply</small></div><input type="number" id="chgChargeReq" class="chg-input" min="0.1" step="0.1" value="2"></div>
       <div class="field"><div class="name">Absorb voltage<small>V per cell · CV target · blank = chemistry default</small></div><input type="number" id="chgAbsorbCell" class="chg-input" min="1" step="0.01"></div>
-      <div class="field" id="chgFloatField"><div class="name">Float voltage<small>V per cell · blank = chemistry default</small></div><input type="number" id="chgFloatCell" class="chg-input" min="1" step="0.01"></div></div>
+      <div class="field" id="chgFloatField"><div class="name">Float voltage<small>V per cell · blank = chemistry default</small></div><input type="number" id="chgFloatCell" class="chg-input" min="1" step="0.01"></div>
     </div>
 
     <div class="sec">
@@ -280,7 +282,9 @@
       <div class="field"><div class="name">Taper current<small>CV → float</small></div><span class="diagval" id="chgTaperA">-.-- A</span></div>
       <div class="field"><div class="name">Max watts<small>absorb V × charge A, end of CC</small></div><span class="diagval" id="chgMaxW">-.- W</span></div>
       <div class="field"><div class="name">Average watts<small>est. over CC, nominal → absorb</small></div><span class="diagval" id="chgAvgW">-.- W</span></div>
-      <div class="charge-msg warn" id="chgClampWarn" style="display:none;margin-top:8px;">⚠ Charge current limited by device / safety-clamp max</div>
+      <div class="charge-msg warn" id="chgCRateWarn" style="display:none;margin-top:8px;"><span id="chgCRateMsg"></span>
+        <label style="display:block;margin-top:6px;"><input type="checkbox" id="chgCRateOverride"> Override: I've checked the cell datasheet</label></div>
+      <div class="charge-msg warn" id="chgClampWarn" style="display:none;margin-top:8px;">⚠ Charge current limited by device / safety-clamp max / 300 W cap</div>
     </div>
 
     <div class="sec">
@@ -336,7 +340,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" onclick="this.classList.remove('show')"></div>
 <script type="module" src="/backend.js"></script>
 <script type="module">
-import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob } from '/charge/profiles.js';
+import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob, packVRange, overCRate } from '/charge/profiles.js';
 import { ChargeRunner } from '/charge/runner.js';
 import { socFromRestV, ChargeEstimate, defaultSocPoints, socTableFromPoints, SOC_STEPS } from '/charge/estimate.js';
 import { TempReader } from '/charge/temp.js';
@@ -873,10 +877,8 @@ import { selectTransport } from '/transport/select.js';
   }
   function uinReadout(v){ el('uinReadout').textContent = 'U-IN ' + fmt(v,1) + ' V ·'; }
   // STP2S internal temp (reg 0x0003, °C); also feeds the OTP pill tooltip.
-  var lastTempC = null;   // also shown on the charger-mode status line (renderChgFace)
   function tempReadout(v){
-    lastTempC = v;
-    el('tempReadout').textContent = 'TEMP ' + fmt(v,0) + '°C';
+    el('tempReadout').textContent = el('chgTempTop').textContent = 'TEMP ' + fmt(v,0) + '°C';
     protPill('otp', 'lim', fmt(v,0) + '°C');
   }
   // External temp probe (our sensor) — reuses the old D3806 "buck" readout slot in
@@ -953,7 +955,7 @@ import { selectTransport } from '/transport/select.js';
     b.textContent = psuMode ? 'OUTPUT  ' + (on ? 'ON' : 'OFF') : (on ? 'ABORT  CHARGE' : 'START  CHARGE');
     b.className = 'onoff ' + (on ? 'on' : 'off');
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.disabled = !psuMode && !on && (!chgLinkLive() || !chgTelemetryReady());
+    b.disabled = !psuMode && !on && (!chgLinkLive() || !chgTelemetryReady() || !!chgStartBlock());
   }
 
   function setMode(isPsu){
@@ -1358,6 +1360,10 @@ import { selectTransport } from '/transport/select.js';
     el('csMaxA').textContent = d.chargeA.toFixed(2);
     chgJobPreview = d; renderSetpoints();
     // Applied current below what the user asked → the device/clamp is limiting it.
+    var over = overCRate(job.chemistry, d.chargeA, job.capacityAh);
+    el('chgCRateWarn').style.display = over ? '' : 'none';
+    if(over) el('chgCRateMsg').textContent = '\u26a0 ' + over.c.toFixed(2) + 'C is over the ' + over.max + 'C max for ' + CHG_PROFILES[job.chemistry].name + '. START needs the override.';
+    renderOutputBtn();
     el('chgClampWarn').style.display = (d.requestedA - d.chargeA > 0.01) ? '' : 'none';
     // Absorb capped: safe (output never exceeds the cap) but the pack won't reach full charge.
     // Toast once per new cap, not every telemetry tick; the Absorb row keeps a "capped" tag.
@@ -1487,13 +1493,31 @@ import { selectTransport } from '/transport/select.js';
     var job = readChgJob();
     return socFromRestV(job.chemistry, job.cells, chgLastV, chgSocTable(job.chemistry));
   }
-  // Charger-mode face. Glass status bar: elapsed + ETA. Line under the job: TEMP, then the stage
+  // Sensed pack voltage outside the job's window (wrong cells/chemistry): a message, else null.
+  // Only with the output off (output on reads our own setpoint) and something on the terminals.
+  function chgPackMismatch(){
+    if(outputOn || typeof chgLastV !== 'number' || chgLastV <= 0.5) return null;
+    var job = readChgJob(), r = packVRange(job.chemistry, job.cells);
+    if(!r || (chgLastV >= r.lo && chgLastV <= r.hi)) return null;
+    return chgPackMismatchMsg(job, r);
+  }
+  // Anything that keeps START locked: pack mismatch, or C-rate over max without the override.
+  function chgStartBlock(){
+    var m = chgPackMismatch();
+    if(m) return m;
+    var job = readChgJob(), d = chgDeriveJob(job, chgEnv()), over = overCRate(job.chemistry, d.chargeA, job.capacityAh);
+    if(over && !el('chgCRateOverride').checked) return over.c.toFixed(2) + 'C is over the ' + over.max + 'C max \u00b7 override in Charge settings';
+    return null;
+  }
+  function chgPackMismatchMsg(job, r){
+    return chgLastV.toFixed(2) + ' V is outside ' + job.cells + 'S ' + CHG_PROFILES[job.chemistry].name + ' (' + r.lo.toFixed(1) + '\u2013' + r.hi.toFixed(1) + ' V) \u00b7 START locked';
+  }
+  // Charger-mode face. Glass status bar: elapsed + ETA. Line under the job: the stage
   // when it isn't CC/CV (the unit's CC/CV pills show that), fault reason, Ah in; idle: the resting
   // pack reading. Big % in the W row. state null/unstarted = idle.
   function renderChgFace(state){
     if(psuMode) return;
-    var running = !!(state && state.started), soc = null, time = [], parts = [];
-    parts.push('TEMP ' + (lastTempC == null ? '--' : fmt(lastTempC, 0)) + '°C');
+    var running = !!(state && state.started), soc = null, time = [], parts = [], block = null;
     if(running){
       time.push('elapsed ' + fmtDuration(Math.max(0, Math.round((performance.now() - chargeRunner.startMs) / 1000))));
       var eta = chgEst && chgEst.eta(state.stage);
@@ -1502,12 +1526,17 @@ import { selectTransport } from '/transport/select.js';
       if(state.reason) parts.push('<span class="hazard">' + escapeHtml(state.reason) + '</span>');
       if(chgEst){ soc = chgEst.soc(); parts.push('+' + chgEst.ahIn.toFixed(2) + ' Ah'); }
     } else {
-      soc = chgRestSoc();
-      if(soc != null) parts.push('pack ' + chgLastV.toFixed(2) + ' V (resting)');
-      else if(typeof chgLastV === 'number' && chgLastV > 0.5 && !outputOn) parts.push(chgLastV.toFixed(2) + ' V doesn\u2019t match the job\u2019s pack');
+      var mismatch = chgPackMismatch();
+      block = chgStartBlock();
+      soc = mismatch ? null : chgRestSoc();
+      if(soc != null && !mismatch) parts.push('pack ' + chgLastV.toFixed(2) + ' V (resting)');
+      else if(!mismatch && typeof chgLastV === 'number' && chgLastV > 0.5 && !outputOn) parts.push(chgLastV.toFixed(2) + ' V doesn\u2019t match the job\u2019s pack');
+      renderOutputBtn();   // START locks/unlocks as the sensed voltage or job changes
     }
     el('chgTimeReadout').textContent = time.join(' · ');
     el('chgFaceStatus').innerHTML = parts.join(' · ');
+    el('chgStartBlock').hidden = !block;
+    el('chgStartBlock').textContent = block ? '\u26d4 ' + block : '';
     el('socBig').textContent = soc == null ? '--%' : Math.round(soc) + '%';
   }
 
@@ -1608,6 +1637,7 @@ import { selectTransport } from '/transport/select.js';
       el(id).addEventListener('change', chgRenderPreview);
       el(id).addEventListener('input', saveChgJob);   // input, not change: survives quitting mid-edit
     });
+    el('chgCRateOverride').addEventListener('change', function(){ renderOutputBtn(); renderChgFace(chargeRunner.state); });
     el('chgLinkLostDismiss').addEventListener('click', chgHideLinkLostWarning);
     // el('chgTempConnectBtn').addEventListener('click', chgConnectTempProbe);   // probe UI commented out
     el('chgCsvBtn').addEventListener('click', function(){
@@ -1801,6 +1831,8 @@ import { selectTransport } from '/transport/select.js';
     function chgStartOrAbort(){
       if(chgIsRunning()){ chargeRunner.abort(); updateChgButtons(); return; }
       if(!chgLinkLive() || !chgTelemetryReady()) return;
+      var block = chgStartBlock();
+      if(block){ toast(block); return; }
       chgHideLinkLostWarning();
       _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
       chgStartFeedLoop();             // re-arm in case a prior run reached terminal
