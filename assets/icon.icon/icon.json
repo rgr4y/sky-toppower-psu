@@ -1,0 +1,20 @@
+{
+  "fill": {
+    "solid": "srgb:0.25490,0.40392,0.63922,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "sky.svg",
+          "name": "sky"
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}
