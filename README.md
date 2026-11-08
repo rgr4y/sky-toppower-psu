@@ -64,7 +64,8 @@ make bump       # bump the patch version in package.json (PART=minor|major), no 
 
 Every push to `main` builds in GitHub Actions: signed, notarized macOS arm64 and x64 zips + dmgs,
 plus Linux x64 and Windows x64 zips (unsigned)
-(`.github/workflows/build.yml`) and uploads one run artifact per platform, named with the version.
+(`.github/workflows/build.yml`). When all pass, it publishes them as the GitHub release for
+package.json's version, replacing that release if the version wasn't bumped (`make bump`).
 
 There's no port picker. The app waits for the CH340 and connects when it's
 plugged in.

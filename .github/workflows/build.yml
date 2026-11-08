@@ -16,21 +16,18 @@ permissions:
 
 jobs:
   build:
-    # One native runner per OS/arch: maker-dmg and notarization need macOS; Linux/Windows build on
-    # their own OS so npm test runs there too (packager writes the exe resources with pure-JS
-    # resedit, so Windows could cross-build). Standard runners are free on public repos.
+    # maker-dmg and notarization need macOS, one native runner per arch. Windows cross-builds on
+    # the Linux runner: packager writes the exe icon/version with pure-JS resedit, no Wine needed.
+    # Standard runners are free on public repos.
     strategy:
       fail-fast: false # one platform failing shouldn't cancel the others
       matrix:
         include:
-          - { os: macos, arch: arm64, runner: macos-latest, electron-cache: ~/Library/Caches/electron }
-          - { os: macos, arch: x64, runner: macos-26-intel, electron-cache: ~/Library/Caches/electron }
-          - { os: linux, arch: x64, runner: ubuntu-latest, electron-cache: ~/.cache/electron }
-          - { os: windows, arch: x64, runner: windows-latest, electron-cache: ~/AppData/Local/electron/Cache }
+          - { os: macos, platform: darwin, arch: arm64, runner: macos-latest, electron-cache: ~/Library/Caches/electron }
+          - { os: macos, platform: darwin, arch: x64, runner: macos-26-intel, electron-cache: ~/Library/Caches/electron }
+          - { os: linux, platform: linux, arch: x64, runner: ubuntu-latest, electron-cache: ~/.cache/electron }
+          - { os: windows, platform: win32, arch: x64, runner: ubuntu-latest, electron-cache: ~/.cache/electron }
     runs-on: ${{ matrix.runner }}
-    defaults:
-      run:
-        shell: bash # Git Bash on Windows
     steps:
       - uses: actions/checkout@v7
 
@@ -56,10 +53,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ${{ matrix.electron-cache }}
-          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          key: electron-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
 
       - name: Fetch Electron
-        run: node scripts/fetch-electron.mjs "$RUNNER_TEMP/electron-zips" ${{ matrix.arch }}
+        run: node scripts/fetch-electron.mjs "$RUNNER_TEMP/electron-zips" ${{ matrix.arch }} ${{ matrix.platform }}
 
       # Developer ID cert (MACOS_CERT_P12 = base64 .p12) into a throwaway keychain. Without it the
       # build is labelled UNSIGNED (artifact name + summary) rather than quietly shipping unsigned.
@@ -98,7 +95,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: npm run make -- --arch=${{ matrix.arch }}
+        run: npm run make -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
 
       - name: Verify signature and notarization
         if: steps.sign.outputs.signed
@@ -133,3 +130,42 @@ jobs:
             out/make/**/*.zip
             out/make/**/*.dmg
           if-no-files-found: error
+
+  # After every build passes: publish a GitHub release for package.json's version. If that version
+  # is already released (no bump since), the old release and its tag are deleted and recreated
+  # at this commit with the new files. Assets are renamed to
+  # sky-toppower-psu-<version>-<os>-<arch>.<ext> (Forge's names have spaces).
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if ls -d artifacts/*-UNSIGNED > /dev/null 2>&1; then
+            echo "::error::refusing to release an UNSIGNED macOS build"; exit 1
+          fi
+          mkdir release
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            while IFS= read -r -d '' f; do
+              cp "$f" "release/$name.${f##*.}"
+            done < <(find "$dir" -type f \( -name '*.zip' -o -name '*.dmg' \) -print0)
+          done
+          ls -la release
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag exists: replacing it (release + tag) with this build" | tee -a "$GITHUB_STEP_SUMMARY"
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
+          gh release create "$tag" release/* --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
