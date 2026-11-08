@@ -798,6 +798,11 @@ button {
   font-weight: 700;
   text-align: center;
 }
+.start-block.warn {
+  border-color: #d2992266;
+  background: #d299221a;
+  color: var(--a);
+}
 .start-block[hidden] {
   display: none;
 }

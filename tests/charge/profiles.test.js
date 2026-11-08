@@ -26,11 +26,12 @@ test('deriveJob: per-cell absorb/float overrides, capped at the chemistry maximu
   assert.equal(dflt.absorbV.toFixed(2), '16.80'); assert.equal(dflt.floatV, null, 'Li-ion has no float stage');
 });
 
-test('safety: pack voltage window, C-rate max', async () => {
-  const { packVRange, overCRate } = await import('../../src/charge/profiles.js');
-  const r = packVRange('leadacid', 1);
+test('safety: pack voltage window (engine preflight bounds), C-rate max', async () => {
+  const { overCRate } = await import('../../src/charge/profiles.js');
+  const { packVBounds } = await import('../../src/charge/engine.js');
+  const r = packVBounds('leadacid', 1);
   assert.ok(13.35 > r.hi, '12 V battery on a 1S lead-acid job is out of range');
-  const r4 = packVRange('lifepo4', 4);
+  const r4 = packVBounds('lifepo4', 4);
   assert.ok(13.3 >= r4.lo && 13.3 <= r4.hi, '4S LiFePO4 at rest fits');
   assert.ok(26.6 > r4.hi, '8S pack on a 4S job does not');
   assert.equal(overCRate('liion', 1, 1), null, '1C Li-ion is fine');

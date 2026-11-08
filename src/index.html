@@ -340,7 +340,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite" onclick="this.classList.remove('show')"></div>
 <script type="module" src="/backend.js"></script>
 <script type="module">
-import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob, packVRange, overCRate } from '/charge/profiles.js';
+import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob, overCRate } from '/charge/profiles.js';
+import { packVBounds } from '/charge/engine.js';
 import { ChargeRunner } from '/charge/runner.js';
 import { socFromRestV, ChargeEstimate, defaultSocPoints, socTableFromPoints, SOC_STEPS } from '/charge/estimate.js';
 import { TempReader } from '/charge/temp.js';
@@ -1493,24 +1494,24 @@ import { selectTransport } from '/transport/select.js';
     var job = readChgJob();
     return socFromRestV(job.chemistry, job.cells, chgLastV, chgSocTable(job.chemistry));
   }
-  // Sensed pack voltage outside the job's window (wrong cells/chemistry): a message, else null.
-  // Only with the output off (output on reads our own setpoint) and something on the terminals.
+  // Sensed pack voltage vs the job's window (the engine preflight's own packVBounds, so the lock
+  // and the START check can't disagree). Output off only: output on reads our own setpoint.
+  // { text, warn } or null. warn: nothing connected (amber), else a wrong cells/chemistry (red).
   function chgPackMismatch(){
-    if(outputOn || typeof chgLastV !== 'number' || chgLastV <= 0.5) return null;
-    var job = readChgJob(), r = packVRange(job.chemistry, job.cells);
+    if(outputOn || typeof chgLastV !== 'number') return null;
+    if(chgLastV <= 0.5) return { text: '\ud83d\udd0c No battery detected \u00b7 connect the pack', warn: true };
+    var job = readChgJob(), r = packVBounds(job.chemistry, job.cells);
     if(!r || (chgLastV >= r.lo && chgLastV <= r.hi)) return null;
-    return chgPackMismatchMsg(job, r);
+    return { text: '\u26d4 ' + chgLastV.toFixed(2) + ' V doesn\u2019t fit ' + job.cells + 'S ' + CHG_PROFILES[job.chemistry].name +
+      ' (' + r.lo.toFixed(2) + '\u2013' + r.hi.toFixed(2) + ' V) \u00b7 START locked' };
   }
-  // Anything that keeps START locked: pack mismatch, or C-rate over max without the override.
+  // Anything that keeps START locked: pack voltage, or C-rate over max without the override.
   function chgStartBlock(){
     var m = chgPackMismatch();
     if(m) return m;
     var job = readChgJob(), d = chgDeriveJob(job, chgEnv()), over = overCRate(job.chemistry, d.chargeA, job.capacityAh);
-    if(over && !el('chgCRateOverride').checked) return over.c.toFixed(2) + 'C is over the ' + over.max + 'C max \u00b7 override in Charge settings';
+    if(over && !el('chgCRateOverride').checked) return { text: '\u26d4 ' + over.c.toFixed(2) + 'C is over the ' + over.max + 'C max \u00b7 override in Charge settings' };
     return null;
-  }
-  function chgPackMismatchMsg(job, r){
-    return chgLastV.toFixed(2) + ' V is outside ' + job.cells + 'S ' + CHG_PROFILES[job.chemistry].name + ' (' + r.lo.toFixed(1) + '\u2013' + r.hi.toFixed(1) + ' V) \u00b7 START locked';
   }
   // Charger-mode face. Glass status bar: elapsed + ETA. Line under the job: the stage
   // when it isn't CC/CV (the unit's CC/CV pills show that), fault reason, Ah in; idle: the resting
@@ -1536,7 +1537,8 @@ import { selectTransport } from '/transport/select.js';
     el('chgTimeReadout').textContent = time.join(' · ');
     el('chgFaceStatus').innerHTML = parts.join(' · ');
     el('chgStartBlock').hidden = !block;
-    el('chgStartBlock').textContent = block ? '\u26d4 ' + block : '';
+    el('chgStartBlock').classList.toggle('warn', !!(block && block.warn));
+    el('chgStartBlock').textContent = block ? block.text : '';
     el('socBig').textContent = soc == null ? '--%' : Math.round(soc) + '%';
   }
 
@@ -1832,7 +1834,7 @@ import { selectTransport } from '/transport/select.js';
       if(chgIsRunning()){ chargeRunner.abort(); updateChgButtons(); return; }
       if(!chgLinkLive() || !chgTelemetryReady()) return;
       var block = chgStartBlock();
-      if(block){ toast(block); return; }
+      if(block){ toast(block.text); return; }
       chgHideLinkLostWarning();
       _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
       chgStartFeedLoop();             // re-arm in case a prior run reached terminal

@@ -24,6 +24,13 @@ const CELL_V_BOUNDS = {
   leadacid: [1.7, 2.6],
 };
 
+// Pack window { lo, hi } in volts for a job, or null for an unknown chemistry. The UI locks START
+// with the same window, so the panel and the preflight can't disagree.
+export function packVBounds(chemistry, cells) {
+  const b = CELL_V_BOUNDS[chemistry];
+  return b && cells > 0 ? { lo: b[0] * cells, hi: b[1] * cells } : null;
+}
+
 // preflight(): one-time sanity checks run only at IDLE->start, before the
 // charge is allowed to begin (i.e. before any OUTPUT:true / CC entry).
 // Returns a fault reason string, or null if safe to proceed. Pure — does
@@ -47,11 +54,9 @@ function preflight(d, inputs, job, effTemp) {
   // count), OV-at-start is the narrower "sane AND under the OV threshold"
   // check — ordering bounds first keeps grossly-wrong-voltage failures
   // reported as "pack/initial" rather than masked by "overvolt".
-  const bounds = job && CELL_V_BOUNDS[job.chemistry];
+  const bounds = job && packVBounds(job.chemistry, job.cells);
   if (bounds && typeof inputs.v === 'number') {
-    const [minCell, maxCell] = bounds;
-    const minV = minCell * job.cells;
-    const maxV = maxCell * job.cells;
+    const { lo: minV, hi: maxV } = bounds;
     if (inputs.v < minV || inputs.v > maxV) {
       return `Initial pack voltage ${inputs.v}V outside sane range [${minV.toFixed(2)}, ${maxV.toFixed(2)}]V for ${job.chemistry}`;
     }
