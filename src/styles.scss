@@ -153,6 +153,57 @@ button {
   color: #8fb6f0;
   text-decoration: underline;
 }
+/* PSU | CHARGE segmented switch (from the XY-SK120 panel). */
+.mode-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 126px;
+  margin-left: 14px;
+  padding: 3px;
+  background: #15181c;
+  border: 1px solid #000;
+  border-radius: 9px;
+  box-shadow: inset 0 1px 3px #000;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mode-thumb {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: calc((100% - 6px) / 2);
+  background: linear-gradient(180deg, #3a4048, #282c32);
+  border: 1px solid #454d57;
+  border-radius: 6px;
+  transition:
+    transform 0.18s,
+    background 0.18s;
+}
+.mode-toggle.charging .mode-thumb {
+  transform: translateX(100%);
+  background: #3d2e0a;
+  border-color: #ffb00066;
+}
+.mode-option {
+  position: relative;
+  padding: 6px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.mode-toggle:not(.charging) .psu-option {
+  color: var(--txt);
+}
+.mode-toggle.charging .charge-option {
+  color: var(--a);
+}
+.mode-toggle:focus-visible {
+  outline: 2px solid var(--w);
+  outline-offset: 3px;
+}
 .topbar .actions {
   margin-left: auto;
   display: flex;
@@ -871,17 +922,6 @@ body.ui-locked .field[data-obj="cfg_max_current"] {
   cursor: not-allowed;
   box-shadow: none;
   color: var(--muted);
-}
-.modebtn {
-  flex: 1;
-  background: linear-gradient(180deg, #30363d, #22262b);
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  border: 1px solid #000;
-  border-radius: 12px;
-  cursor: pointer;
 }
 
 /* FAULT CARD */

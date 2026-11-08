@@ -71,8 +71,13 @@
   <!-- ===== FACE VIEW ===== -->
   <div class="psu active" id="psu">
     <div class="topbar">
-      <span class="title">STP2S <b id="titleMode" style="color:var(--muted);font-weight:600;">· PSU</b></span>
+      <span class="title">STP2S</span>
       <a class="byline" href="https://github.com/rgr4y" target="_blank" rel="noopener">by Rob Vella</a>
+      <button class="mode-toggle" id="modeBtn" type="button" role="switch" aria-label="Charge Mode" aria-checked="false">
+        <span class="mode-thumb" aria-hidden="true"></span>
+        <span class="mode-option psu-option" aria-hidden="true">PSU</span>
+        <span class="mode-option charge-option" aria-hidden="true">CHARGE</span>
+      </button>
       <span class="actions">
         <button class="gearbtn" id="connectBtn" title="Connect STP2S" aria-label="Connect STP2S">🔌</button>
         <span class="linkwrap"><span class="linkdot off" id="linkDot" title="Not connected" role="img" aria-label="Not connected"></span><span class="linktip" id="linkTip" role="status"></span></span>
@@ -179,7 +184,6 @@
       </div>
       <div class="btnrow">
         <button class="onoff off" id="outputBtn" aria-pressed="false">OUTPUT&nbsp;&nbsp;OFF</button>
-        <button class="modebtn" id="modeBtn">⇄ CHARGER</button>
       </div>
     </div>
   </div>
@@ -1004,10 +1008,10 @@ import { selectTransport } from '/transport/select.js';
 
   function setMode(isPsu){
     psuMode = isPsu;
-    // Buttons label the TARGET mode ("switch to X"), not the current one.
-    el('modeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
+    el('modeBtn').classList.toggle('charging', !isPsu);
+    el('modeBtn').setAttribute('aria-checked', isPsu ? 'false' : 'true');
+    // The config view's button labels the TARGET mode ("switch to X"), not the current one.
     el('modeTag').textContent = '⚡ Charger'; el('modeTag').style.display = isPsu ? 'none' : '';   // PSU is the default; only flag charger mode
-    el('titleMode').textContent = isPsu ? '' : '· CHARGER MODE';
     // Face control-swap: charger -> profile card, PSU -> voltage presets.
     if(isPsu) el('psu').classList.remove('is-charger'); else el('psu').classList.add('is-charger');
     var cfg = el('cfg');
