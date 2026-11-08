@@ -70,7 +70,6 @@ window.DPSBackend = {
   isConnected() { return !!ctl; },
   isDaemon() { return false; },
   async shutdownServer() { return false; },
-  async writePresets() { throw new Error('STP2S has no memory-slot registers'); },
 
   async disconnect(opts) {
     debug.log('disconnect', opts || {});

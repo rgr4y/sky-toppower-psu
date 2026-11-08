@@ -1,7 +1,7 @@
 export const PROFILES = {
-  liion:    { name: 'Li-ion/LiPo', absorbV: 4.20, floatV: null, taperC: 0.05, tempC: [0, 45],   tempComp: 0,  precharge: { belowV: 3.0, a: 0.1 } },
-  lifepo4:  { name: 'LiFePO4',     absorbV: 3.65, floatV: 3.40, taperC: 0.05, tempC: [0, 55],   tempComp: 0,  precharge: { belowV: 2.5, a: 0.1 } },
-  leadacid: { name: 'Lead-acid/AGM', absorbV: 2.40, floatV: 2.25, taperC: 0.02, tempC: [-10, 50], tempComp: -4, precharge: null },
+  liion:    { name: 'Li-ion/LiPo', nominalV: 3.7, absorbV: 4.20, floatV: null, taperC: 0.05, tempC: [0, 45],   tempComp: 0,  precharge: { belowV: 3.0, a: 0.1 } },
+  lifepo4:  { name: 'LiFePO4',     nominalV: 3.2, absorbV: 3.65, floatV: 3.40, taperC: 0.05, tempC: [0, 55],   tempComp: 0,  precharge: { belowV: 2.5, a: 0.1 } },
+  leadacid: { name: 'Lead-acid/AGM', nominalV: 2.0, absorbV: 2.40, floatV: 2.25, taperC: 0.02, tempC: [-10, 50], tempComp: -4, precharge: null },
 };
 
 // Taper current is capped at this fraction of the actual charge current, so a
@@ -31,7 +31,12 @@ export function deriveJob(job, env) {
   // the profile's absolute taper at a fraction of the real charge current.
   const taperA = Math.min(p.taperC * capacityAh, chargeA * TAPER_MAX_FRAC);
   const hours = chargeA > 0 ? (capacityAh / chargeA) : 0;
+  // Power: peak is the end of CC (absorb V at full current). Average is a CC-phase estimate.
+  // ponytail: assumes a linear nominal→absorb voltage ramp at constant current; ignores the CV
+  // taper (which only lowers the average). Use the session log for measured watts.
+  const maxW = absorbV * chargeA;
+  const avgW = ((Math.min(p.nominalV * cells, absorbV) + absorbV) / 2) * chargeA;
   const maxTotalS = hours * 3600 * safetyFactor;
   const maxStageS = maxTotalS; // per-stage ceiling defaults to total; tighten in Task 11 if needed
-  return { absorbV, wantV, floatV, chargeA, requestedA, taperA, maxStageS, maxTotalS, tempC: [...p.tempC], precharge: p.precharge ? { belowV: p.precharge.belowV * cells, a: p.precharge.a * capacityAh } : null };
+  return { absorbV, wantV, floatV, chargeA, requestedA, taperA, maxW, avgW, maxStageS, maxTotalS, tempC: [...p.tempC], precharge: p.precharge ? { belowV: p.precharge.belowV * cells, a: p.precharge.a * capacityAh } : null };
 }

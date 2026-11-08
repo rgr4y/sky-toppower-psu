@@ -37,15 +37,8 @@ const CELL_V_BOUNDS = {
 // That live tick on a hot/over-voltage pack is exactly the hazard we must
 // not allow.
 function preflight(d, inputs, job, effTemp) {
-  // Fail-safe: refuse to start if Vin can't be verified at all. Silently
-  // skipping the buck-only check when vin is missing/NaN would let a
-  // boost-only wiring mistake through undetected.
-  if (typeof inputs.vin !== 'number' || Number.isNaN(inputs.vin)) {
-    return 'Vin unknown — cannot verify buck headroom, refusing to start';
-  }
-  if (d.absorbV > inputs.vin) {
-    return `Absorb voltage ${d.absorbV.toFixed(2)}V exceeds Vin ${inputs.vin}V — buck-only supply cannot boost`;
-  }
+  // No Vin/buck-headroom check: the STP2S is AC-powered with a fixed internal supply (the old
+  // D3806 buck needed absorbV < Vin). Output ceiling is clampV from the unit's own vmax.
   if (typeof effTemp === 'number' && effTemp > d.tempC[1]) {
     return `Pack temp ${effTemp}C exceeds hot limit ${d.tempC[1]}C at start`;
   }
