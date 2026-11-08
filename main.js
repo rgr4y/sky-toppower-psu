@@ -57,6 +57,7 @@ function savePos(win) {
 const createWindow = () => {
   const mainWindow = (mainWin = new BrowserWindow({
     ...loadPos(),
+    ...(process.platform === 'linux' && { icon: ICON }),
     // Frameless + transparent: only the floating panel shows. Width = --panel-w in styles.scss
     // + body side padding; height follows the content via 'win:fit' from preload.js.
     width: 784, // placeholder until preload.js reports --panel-w
@@ -175,13 +176,14 @@ ipcMain.handle('serial:request-psu-port', (event) =>
 // app.getVersion() is package.json's version in both dev and packaged builds.
 app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: app.getVersion() });
 
-// Packaged builds get assets/icon.* from forge.config.js (packagerConfig.icon). In dev the stock
-// Electron.app icon shows, so set the dock icon (the macOS About panel follows it). assets/ isn't
-// packaged, hence dev-only.
-const DEV_ICON = path.join(import.meta.dirname, 'assets', 'icon.png');
+// assets/icon.png ships in the package (forge.config.js ignore list). macOS bundles get icon.icns
+// via packagerConfig.icon; in dev the stock Electron.app icon shows, so set the dock icon (the
+// About panel follows it). Linux has no bundle icon: it's the window icon (X11 / KDE's
+// xdg-toplevel-icon), plus the .desktop file that package.json's desktopName points at.
+const ICON = path.join(import.meta.dirname, 'assets', 'icon.png');
 
 app.whenReady().then(() => {
-  if (!app.isPackaged && process.platform === 'darwin') app.dock.setIcon(DEV_ICON);
+  if (!app.isPackaged && process.platform === 'darwin') app.dock.setIcon(ICON);
   protocol.handle('app', serveSrc);
   createWindow();
 

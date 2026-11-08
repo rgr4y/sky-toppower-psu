@@ -29,13 +29,14 @@ export default {
     }),
     icon: 'assets/icon',
     // Ship only what the app runs; the rest of the repo (docs, hardware dumps, tooling) stays out.
-    ignore: (file) => file !== '' && !/^\/(main\.js|preload\.js|package\.json|src)(\/|$)/.test(file),
+    // Plus assets/icon.png, the Linux window icon (main.js).
+    ignore: (file) => file !== '' && !/^\/(main\.js|preload\.js|package\.json|src(\/.*)?|assets|assets\/icon\.png)$/.test(file),
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
+      platforms: ['darwin', 'linux'],
     },
     {
       name: '@electron-forge/maker-dmg',
