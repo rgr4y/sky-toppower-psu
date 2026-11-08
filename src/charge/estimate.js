@@ -21,9 +21,32 @@ export const REST_SOC = {
 // count/chemistry, or nothing connected) rather than clamped to 0/100 %.
 const OUT_OF_RANGE_V = 0.25;
 
-// Resting pack voltage -> percent (0-100), or null when the voltage doesn't fit the job's pack.
-export function socFromRestV(chemistry, cells, packV) {
+// The editable form: per-cell volts at 0, 10, ... 100 % (11 points, like a BMS's table).
+export const SOC_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+// Default 11-point curve for a chemistry, resampled from REST_SOC (volts, 3 decimals).
+export function defaultSocPoints(chemistry) {
   const table = REST_SOC[chemistry];
+  if (!table) return null;
+  return SOC_STEPS.map((pct) => {
+    for (let k = 1; k < table.length; k++) {
+      const [v0, p0] = table[k - 1], [v1, p1] = table[k];
+      if (pct <= p1) return +(v0 + ((pct - p0) / (p1 - p0)) * (v1 - v0)).toFixed(3);
+    }
+    return table[table.length - 1][0];
+  });
+}
+
+// 11 per-cell volts (0..100 %) -> a [volts, percent] table, or null unless strictly ascending.
+export function socTableFromPoints(points) {
+  if (!Array.isArray(points) || points.length !== SOC_STEPS.length) return null;
+  if (!points.every((v, k) => typeof v === 'number' && v > 0 && (k === 0 || v > points[k - 1]))) return null;
+  return points.map((v, k) => [v, SOC_STEPS[k]]);
+}
+
+// Resting pack voltage -> percent (0-100), or null when the voltage doesn't fit the job's pack.
+// table: [volts, percent] per cell, ascending; defaults to the chemistry's built-in REST_SOC.
+export function socFromRestV(chemistry, cells, packV, table = REST_SOC[chemistry]) {
   if (!table || !(cells > 0) || !(packV > 0)) return null;
   const v = packV / cells;
   const lo = table[0], hi = table[table.length - 1];
