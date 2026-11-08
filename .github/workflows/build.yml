@@ -1,0 +1,62 @@
+name: Build
+
+# One run per push: a merged PR is a single push, however many commits it carries.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same ref cancels the older in-progress build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # macos-latest is arm64 (Apple Silicon); maker-dmg needs macOS.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26 # Forge 8 needs >= 22.13
+          cache: npm
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "### sky-toppower-psu $version (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run make
+
+      # Forge names the zip and dmg from package.json's version; fail if that ever changes.
+      - name: Check artifact names carry the version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          find out/make -type f \( -name '*.zip' -o -name '*.dmg' \) > files.txt
+          cat files.txt
+          test -s files.txt
+          if grep -vF -- "-$VERSION" files.txt; then
+            echo "::error::artifact names above lack version $VERSION"
+            exit 1
+          fi
+          sed 's/^/- /' files.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sky-toppower-psu-${{ steps.version.outputs.version }}-macos-arm64
+          path: |
+            out/make/**/*.zip
+            out/make/**/*.dmg
+          if-no-files-found: error
