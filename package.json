@@ -28,7 +28,8 @@
   "private": true,
   "allowScripts": {
     "fs-xattr@0.3.1": true,
-    "macos-alias@0.2.12": true
+    "macos-alias@0.2.12": true,
+    "@parcel/watcher": false
   },
   "license": "MIT",
   "author": "Rob Vella"
