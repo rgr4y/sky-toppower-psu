@@ -87,8 +87,8 @@
         </div>
         <!-- Split like the real unit: measured | unit | setpoint. Sparklines sit behind the measured digits. -->
         <div class="digits">
-          <div class="line"><span class="meas"><span class="spark" id="sparkV"></span><span class="num v" id="digV">--.--</span></span><span class="u v">V</span><span class="setpt v"><span class="num" id="setrowV">--.--</span><small>V-SET</small></span></div>
-          <div class="line"><span class="meas"><span class="spark" id="sparkA"></span><span class="num a" id="digA">-.---</span></span><span class="u a">A</span><span class="setpt a"><span class="num" id="setrowA">-.---</span><small>A-SET</small></span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkV"></span><span class="num v" id="digV">--.--</span></span><span class="u v">V</span><span class="setpt v"><span class="num" id="setrowV">--.--</span><small id="setrowVLbl">V-SET</small></span></div>
+          <div class="line"><span class="meas"><span class="spark" id="sparkA"></span><span class="num a" id="digA">-.---</span></span><span class="u a">A</span><span class="setpt a"><span class="num" id="setrowA">-.---</span><small id="setrowALbl">A-SET</small></span></div>
           <div class="line"><span class="meas"><span class="spark" id="sparkW"></span><span class="num w" id="digW">--.--</span></span><span class="u w">W</span><span></span></div>
         </div>
         <div class="statusbar">
@@ -146,7 +146,8 @@
           <button data-preset="24.0">24 V</button>
         </div>
       </div>
-      <div class="adj">
+      <!-- PSU MODE: manual setpoints. Charger mode hides them: the engine owns V/I while charging. -->
+      <div class="adj psu-only">
         <span class="tag v">V</span>
         <div class="stepper" data-obj="set_voltage" data-min="0" data-max="32" data-dec="2">
           <button data-step="-1" aria-label="Voltage −1 V">−1</button>
@@ -158,7 +159,7 @@
           <button data-step="1" aria-label="Voltage +1 V">+1</button>
         </div>
       </div>
-      <div class="adj">
+      <div class="adj psu-only">
         <span class="tag a">A</span>
         <div class="stepper" data-obj="set_current" data-min="0" data-max="10" data-dec="3">
           <button data-step="-0.1" aria-label="Current −0.1 A">−.1</button>
@@ -846,8 +847,19 @@ import { selectTransport } from '/transport/select.js';
   function digV(v){ el('digV').textContent = fmt(v,2); pushHist('v', v); }
   function digA(v){ el('digA').textContent = fmt(v,3); pushHist('a', v); }
   function digW(v){ el('digW').textContent = fmt(v,2); pushHist('w', v); }
-  function setrowV(v){ el('setrowV').textContent = fmt(v,2); }
-  function setrowA(v){ el('setrowA').textContent = fmt(v,3); }
+  // Right-hand setpoint column. PSU mode / charging: the unit's setpoints. Charger idle: the
+  // job's absorb V / charge A, i.e. what START CHARGE will write (the unit's leftover PSU
+  // setpoints mean nothing there).
+  var devSetV = null, devSetA = null, chgJobPreview = null;
+  function setrowV(v){ devSetV = v; renderSetpoints(); }
+  function setrowA(v){ devSetA = v; renderSetpoints(); }
+  function renderSetpoints(){
+    var job = !psuMode && !chgIsRunning() && chgJobPreview;
+    el('setrowV').textContent = job ? fmt(job.absorbV,2) : (devSetV == null ? '--.--' : fmt(devSetV,2));
+    el('setrowA').textContent = job ? fmt(job.chargeA,3) : (devSetA == null ? '-.---' : fmt(devSetA,3));
+    el('setrowVLbl').textContent = job ? 'ABSORB' : 'V-SET';
+    el('setrowALbl').textContent = job ? 'CHARGE' : 'A-SET';
+  }
   function uinReadout(v){ el('uinReadout').textContent = 'U-IN ' + fmt(v,1) + ' V ·'; }
   // STP2S internal temp (reg 0x0003, °C); also feeds the OTP pill tooltip.
   function tempReadout(v){
@@ -954,6 +966,7 @@ import { selectTransport } from '/transport/select.js';
     el('cfgModeBtn').textContent = isPsu ? '→ To Charger' : '→ To PSU';
     renderOutputBtn();
     if(!isPsu) chgRenderPreview();   // fill the face's job label + curve summary
+    renderSetpoints();
   }
 
   function displayTest(on){
@@ -1277,6 +1290,7 @@ import { selectTransport } from '/transport/select.js';
     el('csAbsorb').textContent = d.absorbV.toFixed(2);
     el('csFloat').textContent = d.floatV == null ? '—' : d.floatV.toFixed(2);
     el('csMaxA').textContent = d.chargeA.toFixed(2);
+    chgJobPreview = d; renderSetpoints();
     // Applied current below what the user asked → the device/clamp is limiting it.
     el('chgClampWarn').style.display = (d.requestedA - d.chargeA > 0.01) ? '' : 'none';
     // Absorb capped: safe (output never exceeds the cap) but the pack won't reach full charge.
@@ -1298,6 +1312,7 @@ import { selectTransport } from '/transport/select.js';
   function updateChgButtons(){
     setChgInputsDisabled(chgIsRunning());
     renderOutputBtn();
+    renderSetpoints();
   }
 
   function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1660,6 +1675,14 @@ import { selectTransport } from '/transport/select.js';
     el('cfgDone').addEventListener('click', showFace);
     el('chargeBtn').addEventListener('click', showCharge);
     el('chemJob').addEventListener('click', showCharge);
+    // Charger mode: the ABSORB / CHARGE setpoints open the Charge view (current → its input,
+    // voltage → cells, since absorb is derived from chemistry × cells).
+    [['setrowV','chgCells'],['setrowA','chgChargeReq']].forEach(function(p){
+      el(p[0]).closest('.setpt').addEventListener('click', function(){
+        if(psuMode) return;
+        showCharge(); el(p[1]).focus(); el(p[1]).select();
+      });
+    });
     el('chargeDone').addEventListener('click', showFace);
     // Logs button removed with the ESP-leftover view (route kept).
 

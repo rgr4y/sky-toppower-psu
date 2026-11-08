@@ -48,6 +48,10 @@ body {
   margin: 0 auto;
 }
 
+#psu.is-charger .line .setpt {
+  cursor: pointer;
+}
+
 html.electron,
 html.electron body {
   background: transparent;

@@ -47,6 +47,10 @@ body {
   margin: 0 auto;
 }
 // Electron frameless transparent window (preload.js adds .electron): no page bg, drag by the topbar.
+// Charger mode: setpoint column opens the Charge view (index.html).
+#psu.is-charger .line .setpt {
+  cursor: pointer;
+}
 html.electron,
 html.electron body {
   background: transparent;
