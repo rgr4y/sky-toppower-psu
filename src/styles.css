@@ -1557,9 +1557,10 @@ button {
 }
 
 .connect-card .sub {
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 18px;
+  color: var(--txt);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 4px 0 18px;
 }
 
 .connect-steps {
