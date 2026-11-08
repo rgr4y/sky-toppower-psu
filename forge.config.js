@@ -20,6 +20,8 @@ export default {
     asar: true,
     appBundleId: 'com.rgr4y.sky-toppower-psu',
     download: { checksums: electronChecksums },
+    // CI: zip prefetched by scripts/fetch-electron.mjs (GitHub or checksum-verified mirror).
+    ...(process.env.ELECTRON_ZIP_DIR && { electronZipDir: process.env.ELECTRON_ZIP_DIR }),
     // Hardened runtime + osx-sign's default Electron entitlements.
     ...(APP_IDENTITY && { osxSign: { identity: APP_IDENTITY } }),
     ...(notarize && {
