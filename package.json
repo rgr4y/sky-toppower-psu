@@ -2,7 +2,7 @@
   "name": "sky-toppower-psu",
   "productName": "SKY TOPPOWER PSU",
   "desktopName": "sky-toppower-psu.desktop",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Power Supply Control Interface",
   "main": "main.js",
   "scripts": {
