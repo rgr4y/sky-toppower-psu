@@ -329,6 +329,7 @@
 <script type="module">
 import { PROFILES as CHG_PROFILES, deriveJob as chgDeriveJob } from '/charge/profiles.js';
 import { ChargeRunner } from '/charge/runner.js';
+import { socFromRestV, ChargeEstimate } from '/charge/estimate.js';
 import { TempReader } from '/charge/temp.js';
 import { selectTransport } from '/transport/select.js';
 
@@ -1206,6 +1207,7 @@ import { selectTransport } from '/transport/select.js';
   // same post() calls the rest of the panel already uses.
   var chgLastV = null, chgLastI = null, chgLastCC = null;
   var chgLog = [];
+  var chgEst = null;   // ChargeEstimate for the running charge (Ah in, % now, ETA)
   var CHG_LOG_MAX = 200000;   // ~16h of samples at the 300ms feed cadence below
   var CHG_FEED_MS = 300;
   var CHG_ACTIVE_STAGES = ['PRECHARGE','CC','CV','FLOAT'];
@@ -1331,6 +1333,12 @@ import { selectTransport } from '/transport/select.js';
       var elapsedS = Math.max(0, Math.round((performance.now() - chargeRunner.startMs) / 1000));
       parts.push('elapsed ' + fmtDuration(elapsedS));
     }
+    if(chgEst && state.started){
+      var soc = chgEst.soc(), eta = chgEst.eta(state.stage);
+      if(soc != null) parts.push('~' + Math.round(soc) + '%');
+      parts.push('+' + chgEst.ahIn.toFixed(2) + ' Ah');
+      if(eta) parts.push('ETA ' + (eta.bound === 'max' ? '≤ ' : '~') + fmtDuration(Math.round(eta.seconds)));
+    }
     el('chgFaceStatus').innerHTML = parts.join(' · ');   // face: stage, reason, elapsed only
     var packT = tempReader.latest('pack');
     var packStale = tempReader.isStale('pack', performance.now());
@@ -1402,6 +1410,7 @@ import { selectTransport } from '/transport/select.js';
     if(progressing || (terminal && _chgLastLoggedStage !== state.stage)){
       var p = (typeof chgLastV === 'number' && typeof chgLastI === 'number') ? chgLastV * chgLastI : null;
       chgLog.push({ t: Date.now(), v: chgLastV, i: chgLastI, p: p, temp: tempReader.latest('pack'), stage: state.stage });
+      if(chgEst) chgEst.sample(performance.now() / 1000, chgLastI, state.stage);
       if(chgLog.length > CHG_LOG_MAX) chgLog.shift();
       _chgLastLoggedStage = state.stage;
     }
@@ -1412,7 +1421,23 @@ import { selectTransport } from '/transport/select.js';
   // a no-op until start() has been called at least once (this.state is null).
   chgStartFeedLoop();
 
-  function chgOnTelemetry(){ renderOutputBtn(); chgRenderPreview(); }
+  function chgOnTelemetry(){ renderOutputBtn(); chgRenderPreview(); renderChgRest(); }
+
+  // Battery % from resting voltage: only with the output off and no current (charging current lifts
+  // the terminal voltage), and only if the unit senses a voltage that fits the job's pack.
+  function chgRestSoc(){
+    if(outputOn || typeof chgLastV !== 'number' || typeof chgLastI !== 'number' || Math.abs(chgLastI) > 0.02) return null;
+    var job = readChgJob();
+    return socFromRestV(job.chemistry, job.cells, chgLastV);
+  }
+  // Idle face status: the resting estimate, until a charge starts.
+  function renderChgRest(){
+    if(psuMode || (chargeRunner.state && chargeRunner.state.started)) return;
+    var soc = chgRestSoc();
+    el('chgFaceStatus').innerHTML = '<b>Idle</b>' + (soc == null
+      ? (typeof chgLastV === 'number' && chgLastV > 0.5 && !outputOn ? ' · ' + chgLastV.toFixed(2) + ' V doesn\u2019t match the job\u2019s pack' : '')
+      : ' · pack ' + chgLastV.toFixed(2) + ' V · ~' + Math.round(soc) + '% (resting)');
+  }
 
   // Persistent, honest warning for the "link dropped mid-charge" case (see
   // setLink()): stays up until the operator explicitly dismisses it (they've
@@ -1705,7 +1730,9 @@ import { selectTransport } from '/transport/select.js';
       chgHideLinkLostWarning();
       _chgLastLoggedStage = null;     // fresh run: let a repeat DONE/FAULT log again
       chgStartFeedLoop();             // re-arm in case a prior run reached terminal
-      chargeRunner.start(readChgJob(), chgEnv());
+      var job = readChgJob();
+      chgEst = new ChargeEstimate({ capacityAh: job.capacityAh, derived: chgDeriveJob(job, chgEnv()), soc0: chgRestSoc() });   // % read before output-on
+      chargeRunner.start(job, chgEnv());
       updateChgButtons();
     }
 
