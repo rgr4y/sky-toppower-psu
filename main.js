@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, net, protocol, screen, shell } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -182,7 +183,42 @@ app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: app.ge
 // xdg-toplevel-icon), plus the .desktop file that package.json's desktopName points at.
 const ICON = path.join(import.meta.dirname, 'assets', 'icon.png');
 
+// Linux: register a menu entry + icon for the running binary, so Plasma/GNOME show the app's
+// icon and launcher without an installer. The file name must match package.json's desktopName
+// (Wayland app_id). Points at the AppImage when run as one; rewritten only when its content
+// changes (e.g. the app was moved). Packaged builds only: dev runs the stock electron binary.
+function registerLinuxDesktopEntry() {
+  if (process.platform !== 'linux' || !app.isPackaged) return;
+  const dataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+  const iconPath = path.join(dataHome, 'icons', 'sky-toppower-psu.png');
+  const desktopPath = path.join(dataHome, 'applications', 'sky-toppower-psu.desktop');
+  const exe = process.env.APPIMAGE || process.execPath;
+  const quote = (arg) => `"${arg.replace(/["`$\\]/g, '\\$&')}"`; // desktop-entry Exec quoting
+  const entry = [
+    '[Desktop Entry]',
+    'Type=Application',
+    `Name=${app.getName()}`,
+    'Comment=Control panel for the SKY TOPPOWER STP2S bench power supply',
+    `Exec=${quote(exe)} %U`,
+    `Icon=${iconPath}`,
+    'Categories=Utility;Electronics;',
+    'Terminal=false',
+    '',
+  ].join('\n');
+  try {
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+    fs.mkdirSync(path.dirname(desktopPath), { recursive: true });
+    fs.writeFileSync(iconPath, fs.readFileSync(ICON)); // ICON is inside app.asar; read via Electron's asar fs
+    let current = null;
+    try { current = fs.readFileSync(desktopPath, 'utf8'); } catch {}
+    if (current !== entry) fs.writeFileSync(desktopPath, entry);
+  } catch (err) {
+    console.warn('desktop entry registration failed:', err.message);
+  }
+}
+
 app.whenReady().then(() => {
+  registerLinuxDesktopEntry();
   if (!app.isPackaged && process.platform === 'darwin') app.dock.setIcon(ICON);
   protocol.handle('app', serveSrc);
   createWindow();
