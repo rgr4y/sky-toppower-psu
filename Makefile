@@ -25,8 +25,9 @@ app-dev: css dev-name
 package: node_modules
 	npm run package
 
+# Signed + notarized when ./.env (gitignored) exports APP_IDENTITY and the APPLE_* credentials; see forge.config.js.
 dist: node_modules
-	npm run make
+	@set -a; [ -f .env ] && . ./.env; set +a; npm run make
 
 css: node_modules
 	npm run build:css
